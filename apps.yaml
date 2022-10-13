@@ -7,16 +7,16 @@ offset_calibration:
   module: temperature
   global_dependencies:
     - influx
-  climate_entity: thermostat_2
+  climate_entity: climate.thermostat_2
   temperature_entity:
-    - main_floor_sensor_bme280_temperature
-    - bedroom_sensor_bme280_temperature
-    - david_office_sensor_bme280_temperature
-    - aysylu_office_sensor_bme280_temperature
+    - sensor.main_floor_sensor_bme280_temperature
+    - sensor.bedroom_sensor_bme280_temperature
+    - sensor.david_office_sensor_bme280_temperature
+    - sensor.aysylu_office_sensor_bme280_temperature
 
 convergence_speed_calibration:
   class: ConvergenceSpeedCalibration
   module: temperature
   global_dependencies:
     - influx
-  climate_entity: thermostat_2
+  climate_entity: climate.thermostat_2
