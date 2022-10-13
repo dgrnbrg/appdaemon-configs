@@ -20,3 +20,12 @@ convergence_speed_calibration:
   global_dependencies:
     - influx
   climate_entity: climate.thermostat_2
+
+redlink_room_goal:
+  class: ClimateGoal
+  module: temperature
+  people_trackers:
+    - device_tracker.david_iphone
+    - device_tracker.aysylu_iphone
+  presence_ent: True
+  room: main

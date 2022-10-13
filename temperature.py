@@ -92,10 +92,20 @@ class ClimateGoal(hass.Hass):
     def initialize(self):
         self.people_trackers = self.args["people_trackers"]
         self.presence_ent = self.args["presence_ent"]
+        runtime = datetime.time(0, 0, 0)
+        self.run_in(self.apply_climate_goal, 0)
+        self.run_hourly(self.apply_climate_goal, runtime)
+        for tracker in self.people_trackers:
+            self.listen_state(self.on_state_changed, tracker)
+        if self.presence_ent != True:
+            self.listen_state(self.on_state_changed, self.presence_ent)
+
+    def on_state_changed(self, entity, attribute, old, new, kwargs):
+        self.apply_climate_goal()
 
     def apply_climate_goal(self, kwargs):
         min_to_reach_tolerable = 30 # TODO base on real numbers & configuration
-        trackers = [self.get_state(x, attributes='all') for x in self.people_trackers]
+        trackers = [self.get_state(x, attribute='all') for x in self.people_trackers]
         target_state = 'safe'
         for tracker in trackers:
             if tracker['state'] == 'home':
@@ -104,13 +114,19 @@ class ClimateGoal(hass.Hass):
             if tracker['travel_time_min'] <= min_to_reach_tolerable:
                 target_state = 'tolerable'
                 break
-        presence = self.get_state(self.presence_ent)
-        if presence == 'on':
+        if self.presence_ent == True:
             target_state = 'agreeable'
-            # TODO incorporatee room-level tracking info here for preference impl
+        else:
+            presence = self.get_state(self.presence_ent)
+            if presence == 'on':
+                target_state = 'agreeable'
+                # TODO incorporatee room-level tracking info here for preference impl
         # TODO incorporate task overrides here
         # TODO compute the actual target temperature goal (maybe it's actually a high/low range? or maybe it's a state w/ attributes for preference details)
         # TODO publish goal for the room
+        self.log(f"setting climate goal for {self.args['room']} to {target_state}")
+        goal_ent = self.get_entity(f"sensor.climate_goal_{self.args['room']}")
+        goal_ent.set_state(state=target_state)
 
 class ClimateImplementor(hass.Hass):
     def initialize(self):
@@ -155,7 +171,9 @@ class ClimateImplementor(hass.Hass):
 
         if mode != 'fan':
             # apply calibration
-            cal = self.get_state(f'sensor.offset_calibrated_{self.climate_ent}_{self.temperature_ent}')
+            climate_ent_parts = self.climate_ent.split('.')
+            temp_ent_parts = self.temperature_ent.split('.')
+            cal = self.get_state(f'sensor.offset_calibrated_{climate_ent_parts[1]}_{temp_ent_parts[1]}')
             if mode == 'heat':
                 offset = cal['heating_offset']
             else:
