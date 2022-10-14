@@ -38,23 +38,23 @@ class OffsetCalibration(hass.Hass):
                 remote_temp = get_sensor_data(remote_temp_ent, column='remote_temp')
                 temp = get_sensor_data(self.thermostat_ent + ".current_temperature", column='current_temp')
                 target_temp = get_sensor_data(self.thermostat_ent + ".temperature", column='target_temp')
-                mode = get_sensor_data(self.thermostat_ent + ".hvac_action_str", column='hvac_action')
+                mode = get_sensor_data(self.thermostat_ent + ".state", column='hvac_mode')
                 base_times = pd.concat([x['_time'] for x in [temp, remote_temp, target_temp, mode]])
                 base_times = base_times.sort_values().drop_duplicates()
                 df = pd.merge_asof(base_times, temp, on='_time')
                 df = pd.merge_asof(df, target_temp, on='_time')
                 df = pd.merge_asof(df, mode, on='_time')
                 df = pd.merge_asof(df, remote_temp, on='_time')
-                offset_df = df.query("hvac_action in ('heating', 'cooling') and current_temp == target_temp").copy()
+                offset_df = df.query("hvac_mode in ('heat', 'cool') and current_temp == target_temp").copy()
                 offset_df._time= offset_df._time.dt.tz_convert('America/New_York')
                 offset_df['delta'] = offset_df['remote_temp'] - offset_df['current_temp']
-                result = offset_df[['hvac_action', 'delta']].groupby('hvac_action').describe()
+                result = offset_df[['hvac_mode', 'delta']].groupby('hvac_mode').describe()
                 self.log(result)
                 offset_entity.set_state(state='on', attributes = {
-                    'cooling_offset': result.loc['cooling'].loc[('delta','mean')],
-                    'heating_offset': result.loc['heating'].loc[('delta','mean')],
-                    'cooling_stddev': result.loc['cooling'].loc[('delta','std')],
-                    'heating_stddev': result.loc['heating'].loc[('delta','std')]
+                    'cooling_offset': result.loc['cool'].loc[('delta','mean')],
+                    'heating_offset': result.loc['heat'].loc[('delta','mean')],
+                    'cooling_stddev': result.loc['cool'].loc[('delta','std')],
+                    'heating_stddev': result.loc['heat'].loc[('delta','std')]
                 })
             except Exception as e:
                 self.error(e)
@@ -70,20 +70,23 @@ class ConvergenceSpeedCalibration(hass.Hass):
     def compute_offsets(self, kwargs):
         temp = get_sensor_data(self.thermostat_ent + ".current_temperature", column="current_temp")
         target_temp = get_sensor_data(self.thermostat_ent + ".temperature", column="target_temp")
-        mode = get_sensor_data(self.thermostat_ent + ".hvac_action_str", column="hvac_action")
+        mode = get_sensor_data(self.thermostat_ent + ".state", column="hvac_mode")
         base_times = pd.concat([x['_time'] for x in [temp, target_temp, mode]])
         base_times = base_times.sort_values().drop_duplicates()
         df = pd.merge_asof(base_times, temp, on='_time')
         df = pd.merge_asof(df, target_temp, on='_time')
         df = pd.merge_asof(df, mode, on='_time')
+        df['_time'] = df['_time'].dt.tz_convert('America/New_York')
         df = df.set_index('_time')
-        change_df = df[['hvac_action', 'target_temp']].shift(1).rename(columns={'hvac_action': 'action_before', 'target_temp': 'target_before'})
-        change_events_df = pd.merge(df, change_df, left_index=True, right_index=True).dropna(subset=['hvac_action', 'action_before']).query("(hvac_action != action_before or target_temp != target_before) and hvac_action not in ['fan', 'off'] and current_temp != target_temp")
+        change_df = df[['hvac_mode', 'target_temp']].shift(1).rename(columns={'hvac_mode': 'mode_before', 'target_temp': 'target_before'})
+        change_events_df = pd.merge(df, change_df, left_index=True, right_index=True).dropna(subset=['hvac_mode', 'mode_before'])
+        change_events_df = change_events_df.query("(hvac_mode != mode_before or target_temp != target_before) and hvac_mode not in ['fan', 'off'] and current_temp != target_temp")
 
-        stable_df = df.query('current_temp == target_temp').drop(['current_temp', 'target_temp'],axis=1)
+        stable_df = df.query('current_temp == target_temp').drop(['current_temp'],axis=1).rename(columns={'target_temp': 'stable_temp'})
         stable_df['stable_time'] = stable_df.index
         change_events_df['temp_delta'] = change_events_df['target_temp'] - change_events_df['current_temp']
-        change_events_df = pd.merge_asof(change_events_df, stable_df, left_index=True, right_index=True, by='hvac_action', direction='forward').dropna(subset=['stable_time'])
+        change_events_df = pd.merge_asof(change_events_df, stable_df, left_index=True, right_index=True, by='hvac_mode', direction='forward').dropna(subset=['stable_time'])
+        change_events_df = change_events_df.query("(temp_delta > 0 and hvac_mode == 'heat') or (temp_delta < 0 and hvac_mode == 'cool')").copy()
         change_events_df['time_delta'] = (change_events_df['stable_time'] - change_events_df.index).dt.total_seconds()
         change_events_df['adapt_rate_degrees_per_hr'] = change_events_df['temp_delta'] / (change_events_df['time_delta'] / 3600.0)
         self.log(change_events_df)
