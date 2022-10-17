@@ -29,3 +29,10 @@ redlink_room_goal:
     - device_tracker.aysylu_iphone
   presence_ent: True
   room: main
+
+tracker_test:
+  class: IrkTracker
+  module: irk_tracker
+  training_input_text: input_text.irk_tag
+  data_loc: tracker_logs/
+  rows_per_flush: 100

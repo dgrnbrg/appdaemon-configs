@@ -104,17 +104,18 @@ class ClimateGoal(hass.Hass):
             self.listen_state(self.on_state_changed, self.presence_ent)
 
     def on_state_changed(self, entity, attribute, old, new, kwargs):
-        self.apply_climate_goal()
+        self.apply_climate_goal({})
 
     def apply_climate_goal(self, kwargs):
         min_to_reach_tolerable = 30 # TODO base on real numbers & configuration
         trackers = [self.get_state(x, attribute='all') for x in self.people_trackers]
         target_state = 'safe'
         for tracker in trackers:
+            self.log(f"looking at tracker for climate goal: {tracker}")
             if tracker['state'] == 'home':
                 target_state = 'tolerable'
                 break
-            if tracker['travel_time_min'] <= min_to_reach_tolerable:
+            if tracker['attributes']['travel_time_min'] <= min_to_reach_tolerable and tracker['attributes']['dir_of_travel'] == 'Towards':
                 target_state = 'tolerable'
                 break
         if self.presence_ent == True:
@@ -134,9 +135,18 @@ class ClimateGoal(hass.Hass):
 class ClimateImplementor(hass.Hass):
     def initialize(self):
         self.climate_ent = self.args['climate_entity']
+        # TODO there should probably be support for multiple goals
         self.climate_goal = self.args['climate_goal']
         self.outside_temp = self.args['outside_temp']
         self.temperature_ent = self.args['temperature_entity']
+        # New algorithm
+        # We have a single (optional?) climate ents, an optional heating switch, an optional cooling switch, a window/external ventilation switch, a list of goals (ie rooms), outside temp/weather
+        # We'll take the goals, use their adjustments to find a climate ent temp range that satisfies all the goals or the mean with a warning if unsatisfiable
+        # then, we'll consider solutions in a specified priority order
+        # - heating/cooling switches are TODO, since idk if I have any
+        # - window switches should be disabled if the outdoor temp or weather is outside of comfort bounds
+        # - The climate ent should be set to a temp in the valid range closest to the room's current temp. climate settings should be disabled when the outside temp is too extreme.or weather is outside of comfort bounds
+        # - The climate ent should be set to the "cheapest" version 
 
     def calculate_target_temp(self):
         climate_goal = self.get_state(self.climate_goal)
