@@ -1,4 +1,5 @@
 import datetime
+import math
 import numpy as np
 import pandas as pd
 import hassapi as hass
@@ -91,8 +92,10 @@ class ConvergenceSpeedCalibration(hass.Hass):
         change_events_df['adapt_rate_degrees_per_hr'] = change_events_df['temp_delta'] / (change_events_df['time_delta'] / 3600.0)
         self.log(change_events_df)
 
+
 class ClimateGoal(hass.Hass):
     def initialize(self):
+        self.preferences = self.args['preferences']
         self.people_trackers = self.args["people_trackers"]
         self.presence_ent = self.args["presence_ent"]
         runtime = datetime.time(0, 0, 0)
@@ -130,15 +133,15 @@ class ClimateGoal(hass.Hass):
         # TODO publish goal for the room
         self.log(f"setting climate goal for {self.args['room']} to {target_state}")
         goal_ent = self.get_entity(f"sensor.climate_goal_{self.args['room']}")
-        goal_ent.set_state(state=target_state)
+        attrs = self.preferences[target_state].copy()
+        attrs['temp_sensor'] = self.args['temp_ent']
+        goal_ent.set_state(state=target_state, attributes=attrs)
 
 class ClimateImplementor(hass.Hass):
     def initialize(self):
         self.climate_ent = self.args['climate_entity']
-        # TODO there should probably be support for multiple goals
-        self.climate_goal = self.args['climate_goal']
-        self.outside_temp = self.args['outside_temp']
-        self.temperature_ent = self.args['temperature_entity']
+        self.weather_ent = self.args['weather_entity']
+        self.rooms = self.args['rooms']
         # New algorithm
         # We have a single (optional?) climate ents, an optional heating switch, an optional cooling switch, a window/external ventilation switch, a list of goals (ie rooms), outside temp/weather
         # We'll take the goals, use their adjustments to find a climate ent temp range that satisfies all the goals or the mean with a warning if unsatisfiable
@@ -147,6 +150,74 @@ class ClimateImplementor(hass.Hass):
         # - window switches should be disabled if the outdoor temp or weather is outside of comfort bounds
         # - The climate ent should be set to a temp in the valid range closest to the room's current temp. climate settings should be disabled when the outside temp is too extreme.or weather is outside of comfort bounds
         # - The climate ent should be set to the "cheapest" version 
+        self.run_in(self.calculate, 0)
+
+    def calculate(self, kwargs):
+        thermostat_ent_parts = self.climate_ent.split('.')
+        room_goals = {}
+        room_calibration = {}
+        for room in self.rooms:
+            goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
+            remote_temp_ent_parts = goal['attributes']['temp_sensor'].split('.')
+            calibration = self.get_state(f"sensor.offset_calibrated_{thermostat_ent_parts[1]}_{remote_temp_ent_parts[1]}", attribute='all')
+            room_goals[room] = goal
+            room_calibration[room] = calibration
+        # First decide if we're heating, cooling, or failing (TODO alert somehow)
+        goal_mode = None
+        for room in self.rooms:
+            goal = room_goals[room]
+            calibration = room_calibration[room]
+            cur_temp = float(self.get_state(goal['attributes']['temp_sensor']))
+            # TODO incorporate outside temp to block certain goal modes
+            if cur_temp <= goal['attributes']['low']:
+                if goal_mode is None:
+                    goal_mode = 'heating'
+                else:
+                    self.error(f'goal mode is already {goal_mode} but we want to heat for {self.climate_ent}')
+            if cur_temp >= goal['attributes']['high']:
+                if goal_mode is None:
+                    goal_mode = 'cooling'
+                else:
+                    self.error(f'goal mode is already {goal_mode} but we want to cool for {self.climate_ent}')
+            self.log(f"after {room} goal mode is {goal_mode}")
+
+        if goal_mode is None:
+            self.log("Temperature is within comfort range, so not changing thermostat")
+            return
+
+        # Next find a low-high spread in the climate ent's temp domain
+        if goal_mode == 'heating':
+            target_temp = 60
+        elif goal_mode == 'cooling':
+            target_temp = 80
+        else:
+            target_temp = 70
+            self.error(f"invalid goal_mode = {goal_mode}")
+        for room in self.rooms:
+            goal = room_goals[room]
+            calibration = room_calibration[room]
+            offset = calibration['attributes'][f'{goal_mode}_offset']
+            if goal_mode == 'heating':
+                room_target = 'low'
+            elif goal_mode == 'cooling':
+                room_target = 'high'
+            room_target_temp = goal['attributes'][room_target]
+            room_target_temp -= offset
+            if goal_mode == 'heating':
+                target_temp = max(target_temp, room_target_temp)
+            elif goal_mode == 'cooling':
+                target_temp = min(target_temp, room_target_temp)
+        # next, we must do a pass to see whether this target temp would put any rooms out of spec
+        # TODO in this case, we must warn & possibly compromise so that the offset is similar for each room?
+        # set the thermostat
+        self.log(f"calculated climate impl: {goal_mode} to {target_temp}")
+        if goal_mode == 'heating':
+            target_temp = math.ceil(target_temp)
+        elif goal_mode == 'cooling':
+            target_temp = math.floor(target_temp)
+        self.log(f"rounded climate impl to {target_temp}")
+        #self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
+
 
     def calculate_target_temp(self):
         climate_goal = self.get_state(self.climate_goal)

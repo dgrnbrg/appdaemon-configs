@@ -21,7 +21,27 @@ convergence_speed_calibration:
     - influx
   climate_entity: climate.thermostat_2
 
-redlink_room_goal:
+bedroom_goal:
+  class: ClimateGoal
+  module: temperature
+  people_trackers:
+    - device_tracker.david_iphone
+    - device_tracker.aysylu_iphone
+  presence_ent: True
+  room: bedroom
+  temp_ent: sensor.bedroom_sensor_bme280_temperature
+  preferences:
+    safe:
+      high: 80
+      low: 60
+    tolerable:
+      high: 76
+      low: 67
+    agreeable:
+      high: 74
+      low: 69
+
+main_floor_goal:
   class: ClimateGoal
   module: temperature
   people_trackers:
@@ -29,6 +49,28 @@ redlink_room_goal:
     - device_tracker.aysylu_iphone
   presence_ent: True
   room: main
+  temp_ent: sensor.main_floor_sensor_bme280_temperature
+  preferences:
+    safe:
+      high: 80
+      low: 60
+    tolerable:
+      high: 76
+      low: 67
+    agreeable:
+      high: 74
+      low: 69
+
+quarterdeck_impl:
+  class: ClimateImplementor
+  module: temperature
+  climate_entity: climate.thermostat_2
+  weather_entity: weather.home
+  rooms:
+    - main
+    - bedroom
+
+
 
 tracker_test:
   class: IrkTracker
