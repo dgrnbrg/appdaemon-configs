@@ -66,6 +66,44 @@ main_floor_goal:
       high: 74
       low: 69
 
+aysylu_office_goal:
+  class: ClimateGoal
+  module: temperature
+  people_trackers:
+    - device_tracker.aysylu_iphone
+  presence_ent: True
+  room: aysylu_office
+  temp_ent: sensor.aysylu_office_sensor_bme280_temperature
+  preferences:
+    safe:
+      high: 86
+      low: 60
+    tolerable:
+      high: 76
+      low: 67
+    agreeable:
+      high: 74
+      low: 70
+
+david_office_goal:
+  class: ClimateGoal
+  module: temperature
+  people_trackers:
+    - device_tracker.david_iphone
+  presence_ent: True
+  room: david_office
+  temp_ent: sensor.david_office_sensor_bme280_temperature
+  preferences:
+    safe:
+      high: 86
+      low: 60
+    tolerable:
+      high: 76
+      low: 67
+    agreeable:
+      high: 74
+      low: 69
+
 quarterdeck_impl:
   class: ClimateImplementor
   module: temperature
@@ -76,8 +114,8 @@ quarterdeck_impl:
   rooms:
     - main
     - bedroom
-
-
+    - david_office
+    - aysylu_office
 
 tracker_test:
   class: IrkTracker

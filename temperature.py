@@ -160,6 +160,7 @@ class ClimateImplementor(hass.Hass):
         room_calibration = {}
         has_selfish = False
         for room in self.rooms:
+            self.log(f'looking at room {room}')
             goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
             remote_temp_ent_parts = goal['attributes']['temp_sensor'].split('.')
             calibration = self.get_state(f"sensor.offset_calibrated_{thermostat_ent_parts[1]}_{remote_temp_ent_parts[1]}", attribute='all')
