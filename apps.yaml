@@ -40,6 +40,11 @@ bedroom_goal:
     agreeable:
       high: 74
       low: 69
+  tasks:
+    dna_sleeping:
+      high: 72
+      low: 68
+      selfish: True # means that we are the only goal that matters
 
 main_floor_goal:
   class: ClimateGoal
@@ -66,6 +71,8 @@ quarterdeck_impl:
   module: temperature
   climate_entity: climate.thermostat_2
   weather_entity: weather.home
+  max_temp_for_heat: 70
+  min_temp_for_ac: 60
   rooms:
     - main
     - bedroom
