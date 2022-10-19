@@ -107,8 +107,10 @@ class ClimateGoal(hass.Hass):
             self.listen_state(self.on_state_changed, tracker)
         if self.presence_ent != True:
             self.listen_state(self.on_state_changed, self.presence_ent)
+        # TODO should add state change listeners on the temperature sensors from the rooms, but that requires fancier tracking too
 
     def on_state_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"triggered update due to change in {entity} {attribute} from {old} to {new}")
         self.apply_climate_goal({})
 
     def apply_climate_goal(self, kwargs):
@@ -124,7 +126,8 @@ class ClimateGoal(hass.Hass):
                 target_state = 'tolerable'
                 break
         if self.presence_ent == True:
-            target_state = 'agreeable'
+            if target_state == 'tolerable': # only activate if we're home
+                target_state = 'agreeable'
         else:
             presence = self.get_state(self.presence_ent)
             if presence == 'on':
@@ -153,6 +156,14 @@ class ClimateImplementor(hass.Hass):
         self.run_in(self.calculate, 0)
         runtime = datetime.time(0, 0, 0)
         self.run_hourly(self.calculate, runtime)
+        for room in self.rooms:
+            self.listen_state(self.on_state_changed, f"sensor.climate_goal_{room}")
+        self.listen_state(self.on_state_changed, self.climate_ent)
+        self.listen_state(self.on_state_changed, self.weather_ent)
+
+    def on_state_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"triggered update due to change in {entity} {attribute} from {old} to {new}")
+        self.calculate({})
 
     def calculate(self, kwargs):
         thermostat_ent_parts = self.climate_ent.split('.')
@@ -160,7 +171,7 @@ class ClimateImplementor(hass.Hass):
         room_calibration = {}
         has_selfish = False
         for room in self.rooms:
-            self.log(f'looking at room {room}')
+            self.log(f'Fetching data for room {room}')
             goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
             remote_temp_ent_parts = goal['attributes']['temp_sensor'].split('.')
             calibration = self.get_state(f"sensor.offset_calibrated_{thermostat_ent_parts[1]}_{remote_temp_ent_parts[1]}", attribute='all')
@@ -168,6 +179,7 @@ class ClimateImplementor(hass.Hass):
                 has_selfish = True
             room_goals[room] = goal
             room_calibration[room] = calibration
+            self.log(f'Got data for room {room}')
         # First decide if we're heating, cooling, or failing (TODO alert somehow)
         outside_temp = self.get_state(self.weather_ent, attribute='temperature')
         goal_mode = None
@@ -183,7 +195,7 @@ class ClimateImplementor(hass.Hass):
                     if outside_temp <= self.args['max_temp_for_heat']:
                         goal_mode = 'heating'
                     else:
-                        self.error(f"Want to heat, but it's too warm outside ({outside_temp})")
+                        self.error(f"Want to heat (cur={cur_temp}, floor={goal['attributes']['low']}), but it's too warm outside ({outside_temp})")
                 else:
                     self.error(f'goal mode is already {goal_mode} but we want to heat for {self.climate_ent}')
             if cur_temp >= goal['attributes']['high']:
@@ -191,10 +203,10 @@ class ClimateImplementor(hass.Hass):
                     if outside_temp >= self.args['min_temp_for_ac']:
                         goal_mode = 'cooling'
                     else:
-                        self.error(f"Want to cool, but it's too cold outside ({outside_temp})")
+                        self.error(f"Want to cool (cur={cur_temp}, floor={goal['attributes']['high']}), but it's too cold outside ({outside_temp})")
                 else:
                     self.error(f'goal mode is already {goal_mode} but we want to cool for {self.climate_ent}')
-            self.log(f"after {room} goal mode is {goal_mode}")
+            self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']} goal mode is {goal_mode}")
 
         if goal_mode is None:
             self.log("Temperature is within comfort range, so not changing thermostat")
@@ -202,6 +214,9 @@ class ClimateImplementor(hass.Hass):
             return
         
         # TODO this is where we could try to open a window
+        outside_weather = self.get_state(self.weather_ent)
+        if outside_weather in ['sun', 'cloudy']:
+            pass
 
         # Next find a low-high spread in the climate ent's temp domain
         if goal_mode == 'heating':
