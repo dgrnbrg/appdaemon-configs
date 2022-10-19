@@ -147,7 +147,7 @@ class ClimateGoal(hass.Hass):
                     attrs = task_cfg.copy()
                 self.log(f"applying task modifier {task} (cfg={task_cfg}) => new attrs = {attrs}")
         goal_ent = self.get_entity(f"sensor.climate_goal_{self.room}")
-        attrs['temp_sensor'] = temp_ent
+        attrs['temp_sensor'] = self.temp_ent
         goal_ent.set_state(state=target_state, attributes=attrs)
 
 class ClimateImplementor(hass.Hass):
@@ -233,10 +233,10 @@ class ClimateImplementor(hass.Hass):
         window_cooling_eligible = outside_temp + self.window_exchange_min_diff < min_upper_temp
         window_heating_eligible = outside_temp - self.window_exchange_min_diff > max_lower_temp
         if outside_weather['state'] in ['sunny', 'partlycloudy', 'cloudy'] and (goal_mode == 'heating' and window_heating_eligible) or (goal_mode == 'cooling' and window_cooling_eligible):
-            # todo suggest opening a window
+            # suggest opening a window
             self.call_service(
                     'notify/mobile_app_david_iphone',
-                    message=f"Consider opening a window since it's {outside_weather['state'] and we want to {goal_mode[:4]} in the {', '.join(self.rooms[])}")
+                    message=f"Consider opening a window since it's {outside_weather['state']} and we want to {goal_mode[:4]} in the {', '.join(self.rooms)}")
             # TODO ideally we would wait for a while, then resume if the window doesn't open if it's got a sensor
             pass
 
@@ -276,7 +276,7 @@ class ClimateImplementor(hass.Hass):
                 target_temp = min(target_temp, room_target_temp)
             self.log(f'after {room} with goal {goal_mode} target climate temp is {target_temp} (room wants {room_target_temp}')
         # next, we must do a pass to see whether this target temp would put any rooms out of spec
-        # TODO in this case, we must warn & possibly compromise so that the offset is similar for each room?
+        # in this case, we must warn & possibly compromise so that the offset is similar for each room?
         # find the room that would be most out of bounds for this solution, and compromise with it
         most_out_of_bounds = None
         most_out_of_bounds_room = None
@@ -309,4 +309,4 @@ class ClimateImplementor(hass.Hass):
         elif goal_mode == 'cooling':
             target_temp = math.floor(target_temp)
         self.log(f"rounded climate impl to {target_temp}")
-        #self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
+        self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
