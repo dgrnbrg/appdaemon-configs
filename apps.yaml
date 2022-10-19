@@ -24,6 +24,8 @@ convergence_speed_calibration:
 bedroom_goal:
   class: ClimateGoal
   module: temperature
+  dependencies:
+    - offset_calibration
   people_trackers:
     - device_tracker.david_iphone
     - device_tracker.aysylu_iphone
@@ -49,6 +51,8 @@ bedroom_goal:
 main_floor_goal:
   class: ClimateGoal
   module: temperature
+  dependencies:
+    - offset_calibration
   people_trackers:
     - device_tracker.david_iphone
     - device_tracker.aysylu_iphone
@@ -69,6 +73,8 @@ main_floor_goal:
 aysylu_office_goal:
   class: ClimateGoal
   module: temperature
+  dependencies:
+    - offset_calibration
   people_trackers:
     - device_tracker.aysylu_iphone
   presence_ent: True
@@ -88,6 +94,8 @@ aysylu_office_goal:
 david_office_goal:
   class: ClimateGoal
   module: temperature
+  dependencies:
+    - offset_calibration
   people_trackers:
     - device_tracker.david_iphone
   presence_ent: True
@@ -107,6 +115,11 @@ david_office_goal:
 quarterdeck_impl:
   class: ClimateImplementor
   module: temperature
+  dependencies:
+    - david_office_goal
+    - main_floor_goal
+    - aysylu_office_goal
+    - bedroom_goal
   climate_entity: climate.thermostat_2
   weather_entity: weather.home
   max_temp_for_heat: 70
