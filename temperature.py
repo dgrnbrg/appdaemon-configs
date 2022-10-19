@@ -100,6 +100,7 @@ class ClimateGoal(hass.Hass):
         self.presence_ent = self.args["presence_ent"]
         self.tasks = self.args.get('tasks',[])
         self.room = self.args['room']
+        self.temp_ent = self.args['temp_ent']
         runtime = datetime.time(0, 0, 0)
         self.run_in(self.apply_climate_goal, 0)
         self.run_hourly(self.apply_climate_goal, runtime)
@@ -107,7 +108,8 @@ class ClimateGoal(hass.Hass):
             self.listen_state(self.on_state_changed, tracker)
         if self.presence_ent != True:
             self.listen_state(self.on_state_changed, self.presence_ent)
-        # TODO should add state change listeners on the temperature sensors from the rooms, but that requires fancier tracking too
+        # NB we shouldn't actually update b/c the room's temp doesn't affect the goal
+        #self.listen_state(self.on_state_changed, temp_ent)
 
     def on_state_changed(self, entity, attribute, old, new, kwargs):
         self.log(f"triggered update due to change in {entity} {attribute} from {old} to {new}")
@@ -145,7 +147,7 @@ class ClimateGoal(hass.Hass):
                     attrs = task_cfg.copy()
                 self.log(f"applying task modifier {task} (cfg={task_cfg}) => new attrs = {attrs}")
         goal_ent = self.get_entity(f"sensor.climate_goal_{self.room}")
-        attrs['temp_sensor'] = self.args['temp_ent']
+        attrs['temp_sensor'] = temp_ent
         goal_ent.set_state(state=target_state, attributes=attrs)
 
 class ClimateImplementor(hass.Hass):
