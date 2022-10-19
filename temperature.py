@@ -154,6 +154,7 @@ class ClimateImplementor(hass.Hass):
     def initialize(self):
         self.climate_ent = self.args['climate_entity']
         self.weather_ent = self.args['weather_entity']
+        self.window_exchange_min_diff = self.args.get('window_temp_diff',2)
         self.rooms = self.args['rooms']
         self.run_in(self.calculate, 0)
         runtime = datetime.time(0, 0, 0)
@@ -167,7 +168,7 @@ class ClimateImplementor(hass.Hass):
         for room in self.rooms:
             goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
             temp_ent = goal['attributes']['temp_sensor']
-            if temp_ent not in tracked_temp_sensors:
+            if temp_ent not in self.tracked_temp_sensors:
                 self.tracked_temp_sensors[temp_ent] = self.listen_state(self.on_state_changed, temp_ent)
                 self.tracked_temp_sensors_refcount[temp_ent] = 1
             else:
@@ -202,6 +203,9 @@ class ClimateImplementor(hass.Hass):
         # First decide if we're heating, cooling, or failing (TODO alert somehow)
         outside_temp = self.get_state(self.weather_ent, attribute='temperature')
         goal_mode = None
+        # These 2 are used to determine whether a window could help by tracking the greatest need
+        min_upper_temp = 100
+        max_lower_temp = 0
         for room in self.rooms:
             goal = room_goals[room]
             if has_selfish and not goal['attributes'].get('selfish', False):
@@ -211,31 +215,42 @@ class ClimateImplementor(hass.Hass):
             cur_temp = float(self.get_state(goal['attributes']['temp_sensor']))
             if cur_temp <= goal['attributes']['low']:
                 if goal_mode is None:
-                    if outside_temp <= self.args['max_temp_for_heat']:
-                        goal_mode = 'heating'
-                    else:
-                        self.error(f"Want to heat (cur={cur_temp}, floor={goal['attributes']['low']}), but it's too warm outside ({outside_temp})")
-                else:
+                    goal_mode = 'heating'
+                elif goal_mode != 'heating':
                     self.error(f'goal mode is already {goal_mode} but we want to heat for {self.climate_ent}')
+                max_lower_temp = max(max_lower_temp, goal['attributes']['low'])
             if cur_temp >= goal['attributes']['high']:
                 if goal_mode is None:
-                    if outside_temp >= self.args['min_temp_for_ac']:
-                        goal_mode = 'cooling'
-                    else:
-                        self.error(f"Want to cool (cur={cur_temp}, ceiling={goal['attributes']['high']}), but it's too cold outside ({outside_temp})")
-                else:
+                    goal_mode = 'cooling'
+                elif goal_mode != 'cooling':
                     self.error(f'goal mode is already {goal_mode} but we want to cool for {self.climate_ent}')
-            self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']} goal mode is {goal_mode}")
+                min_upper_temp = min(min_upper_temp, goal['attributes']['high'])
+            self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']} goal mode is {goal_mode}. min_upper_temp={min_upper_temp} max_lower_temp={max_lower_temp}")
+        
+        # this is where we try to open a window
+        outside_weather = self.get_state(self.weather_ent, attribute='all')
+        outside_temp = outside_weather['attributes']['temperature']
+        window_cooling_eligible = outside_temp + self.window_exchange_min_diff < min_upper_temp
+        window_heating_eligible = outside_temp - self.window_exchange_min_diff > max_lower_temp
+        if outside_weather['state'] in ['sunny', 'partlycloudy', 'cloudy'] and (goal_mode == 'heating' and window_heating_eligible) or (goal_mode == 'cooling' and window_cooling_eligible):
+            # todo suggest opening a window
+            self.call_service(
+                    'notify/mobile_app_david_iphone',
+                    message=f"Consider opening a window since it's {outside_weather['state'] and we want to {goal_mode[:4]} in the {', '.join(self.rooms[])}")
+            # TODO ideally we would wait for a while, then resume if the window doesn't open if it's got a sensor
+            pass
 
+
+        if goal_mode == 'cooling' and outside_temp < self.args['min_temp_for_ac']:
+            self.error(f"Want to cool (cur={cur_temp}, ceiling={goal['attributes']['high']}), but it's too cold outside ({outside_temp})")
+            return
+        if goal_mode == 'heating' and outside_temp > self.args['max_temp_for_heat']:
+            self.error(f"Want to heat (cur={cur_temp}, floor={goal['attributes']['low']}), but it's too warm outside ({outside_temp})")
+            return
         if goal_mode is None:
             self.log("Temperature is within comfort range, so not changing thermostat")
             #self.call_service('climate/set_hvac_mode', entity_id = self.climate_ent, hvac_mode = 'fan_only')
             return
-        
-        # TODO this is where we could try to open a window
-        outside_weather = self.get_state(self.weather_ent)
-        if outside_weather in ['sun', 'cloudy']:
-            pass
 
         # Next find a low-high spread in the climate ent's temp domain
         if goal_mode == 'heating':
