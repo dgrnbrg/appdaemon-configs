@@ -309,4 +309,4 @@ class ClimateImplementor(hass.Hass):
         elif goal_mode == 'cooling':
             target_temp = math.floor(target_temp)
         self.log(f"rounded climate impl to {target_temp}")
-        self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
+        #self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
