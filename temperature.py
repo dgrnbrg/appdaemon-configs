@@ -160,10 +160,27 @@ class ClimateImplementor(hass.Hass):
             self.listen_state(self.on_state_changed, f"sensor.climate_goal_{room}")
         self.listen_state(self.on_state_changed, self.climate_ent)
         self.listen_state(self.on_state_changed, self.weather_ent)
+        self.tracked_temp_sensors = {}
+        self.tracked_temp_sensors_refcount = {}
+        for room in self.rooms:
+            goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
+            temp_ent = goal['attributes']['temp_sensor']
+            if temp_ent not in tracked_temp_sensors:
+                self.tracked_temp_sensors[temp_ent] = self.listen_state(self.on_state_changed, temp_ent)
+                self.tracked_temp_sensors_refcount[temp_ent] = 1
+            else:
+                self.tracked_temp_sensors_refcount[temp_ent] += 1
 
     def on_state_changed(self, entity, attribute, old, new, kwargs):
         self.log(f"triggered update due to change in {entity} {attribute} from {old} to {new}")
         self.calculate({})
+        if entity.startswith("sensor.climate_goal_") and attribute == "temp_sensor":
+            self.tracked_temp_sensors_refcount[old] -= 1
+            if self.tracked_temp_sensors_refcount[old] == 0:
+                self.cancel_listen_state(old)
+                del self.tracked_temp_sensors[old]
+            self.tracked_temp_sensors[new] = self.listen_state(self.on_state_changed, temp_ent)
+            self.log("updated the temp sensor for room ^")
 
     def calculate(self, kwargs):
         thermostat_ent_parts = self.climate_ent.split('.')
@@ -203,7 +220,7 @@ class ClimateImplementor(hass.Hass):
                     if outside_temp >= self.args['min_temp_for_ac']:
                         goal_mode = 'cooling'
                     else:
-                        self.error(f"Want to cool (cur={cur_temp}, floor={goal['attributes']['high']}), but it's too cold outside ({outside_temp})")
+                        self.error(f"Want to cool (cur={cur_temp}, ceiling={goal['attributes']['high']}), but it's too cold outside ({outside_temp})")
                 else:
                     self.error(f'goal mode is already {goal_mode} but we want to cool for {self.climate_ent}')
             self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']} goal mode is {goal_mode}")
