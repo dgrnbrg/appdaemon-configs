@@ -169,6 +169,7 @@ class ClimateImplementor(hass.Hass):
         self.listen_state(self.on_state_changed, self.weather_ent)
         self.tracked_temp_sensors = {}
         self.tracked_temp_sensors_refcount = {}
+        self.prior_goals = {} # stores the last goal for each associated room
         for room in self.rooms:
             goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
             temp_ent = goal['attributes']['temp_sensor']
@@ -254,10 +255,26 @@ class ClimateImplementor(hass.Hass):
             self.error(f"Want to heat (cur={cur_temp}, floor={goal['attributes']['low']}), but it's too warm outside ({outside_temp})")
             return
         if goal_mode is None:
-            self.log("Temperature is within comfort range, so not changing thermostat")
-            # TODO when the goal state has changed, we should still reimplement. otherwise, we'll get "stuck" in the tightest bounds since it always satisfies
-            #self.call_service('climate/set_hvac_mode', entity_id = self.climate_ent, hvac_mode = 'fan_only')
-            return
+            any_goals_changed = []
+            for room, goal in room_goals.items():
+                prior = self.prior_goals.get(room, None)
+                if goal['state'] != prior:
+                    any_goals_changed.append(room)
+            if any_goals_changed:
+                # In this case, since a goal has changed, we should still reimplement. otherwise, we'll get "stuck" in the tightest bounds since it always satisfies
+                thermostat_mode = self.get_state(self.climate_ent)
+                if thermostat_mode == 'heat':
+                    goal_mode = 'heating'
+                elif thermostat_mode == 'cool':
+                    goal_mode = 'cooling'
+                else:
+                    self.error(f"Thermostat mode {thermostat_mode} isn't heat or cool, so it's not clear how to loosen the bound")
+                    return
+                self.log(f"since {','.join(any_goals_changed)} changed their goals, we are continuing {goal_mode} (thermostat currently in {thermostat_mode}) but changing the thermostat for cost efficiency")
+            else:
+                self.log("Temperature is within comfort range, so not changing thermostat")
+                #self.call_service('climate/set_hvac_mode', entity_id = self.climate_ent, hvac_mode = 'fan_only')
+                return
 
         # Next find a low-high spread in the climate ent's temp domain
         if goal_mode == 'heating':
@@ -281,6 +298,7 @@ class ClimateImplementor(hass.Hass):
                 target_temp = max(target_temp, room_target_temp)
             elif goal_mode == 'cooling':
                 target_temp = min(target_temp, room_target_temp)
+            self.prior_goals[room] = goal['state']
             self.log(f'after {room} with goal {goal_mode} target climate temp is {target_temp} (room wants {room_target_temp}')
         # next, we must do a pass to see whether this target temp would put any rooms out of spec
         # in this case, we must warn & possibly compromise so that the offset is similar for each room?
