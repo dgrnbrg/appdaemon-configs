@@ -108,6 +108,8 @@ class ClimateGoal(hass.Hass):
             self.listen_state(self.on_state_changed, tracker)
         if self.presence_ent != True:
             self.listen_state(self.on_state_changed, self.presence_ent)
+        for task in self.tasks:
+            self.listen_state(self.on_state_changed, f'input_boolean.{task}')
         # NB we shouldn't actually update b/c the room's temp doesn't affect the goal
         #self.listen_state(self.on_state_changed, temp_ent)
 
@@ -148,6 +150,8 @@ class ClimateGoal(hass.Hass):
                 self.log(f"applying task modifier {task} (cfg={task_cfg}) => new attrs = {attrs}")
         goal_ent = self.get_entity(f"sensor.climate_goal_{self.room}")
         attrs['temp_sensor'] = self.temp_ent
+        if 'selfish' not in attrs: # apparently it saves the last time if not updated?
+            attrs['selfish'] = False
         goal_ent.set_state(state=target_state, attributes=attrs)
 
 class ClimateImplementor(hass.Hass):
@@ -199,7 +203,7 @@ class ClimateImplementor(hass.Hass):
                 has_selfish = True
             room_goals[room] = goal
             room_calibration[room] = calibration
-            self.log(f'Got data for room {room}')
+            self.log(f"Got data for room {room} (selfish={goal['attributes'].get('selfish', False)})")
         # First decide if we're heating, cooling, or failing (TODO alert somehow)
         outside_temp = self.get_state(self.weather_ent, attribute='temperature')
         goal_mode = None
