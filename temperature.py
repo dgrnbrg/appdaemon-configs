@@ -207,6 +207,7 @@ class ClimateImplementor(hass.Hass):
         # First decide if we're heating, cooling, or failing (TODO alert somehow)
         outside_temp = self.get_state(self.weather_ent, attribute='temperature')
         goal_mode = None
+        goal_rooms = []
         # These 2 are used to determine whether a window could help by tracking the greatest need
         min_upper_temp = 100
         max_lower_temp = 0
@@ -221,13 +222,15 @@ class ClimateImplementor(hass.Hass):
                 if goal_mode is None:
                     goal_mode = 'heating'
                 elif goal_mode != 'heating':
-                    self.error(f'goal mode is already {goal_mode} but we want to heat for {self.climate_ent}')
+                    self.error(f'goal mode is already {goal_mode} but we want to heat for {room}')
+                goal_rooms.append(room)
                 max_lower_temp = max(max_lower_temp, goal['attributes']['low'])
             if cur_temp >= goal['attributes']['high']:
                 if goal_mode is None:
                     goal_mode = 'cooling'
                 elif goal_mode != 'cooling':
-                    self.error(f'goal mode is already {goal_mode} but we want to cool for {self.climate_ent}')
+                    self.error(f'goal mode is already {goal_mode} but we want to cool for {room}')
+                goal_rooms.append(room)
                 min_upper_temp = min(min_upper_temp, goal['attributes']['high'])
             self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']} goal mode is {goal_mode}. min_upper_temp={min_upper_temp} max_lower_temp={max_lower_temp}")
         
@@ -238,9 +241,9 @@ class ClimateImplementor(hass.Hass):
         window_heating_eligible = outside_temp - self.window_exchange_min_diff > max_lower_temp
         if outside_weather['state'] in ['sunny', 'partlycloudy', 'cloudy'] and (goal_mode == 'heating' and window_heating_eligible) or (goal_mode == 'cooling' and window_cooling_eligible):
             # suggest opening a window
-            self.call_service(
-                    'notify/mobile_app_david_iphone',
-                    message=f"Consider opening a window since it's {outside_weather['state']} and we want to {goal_mode[:4]} in the {', '.join(self.rooms)}")
+            #self.call_service(
+            #        'notify/mobile_app_david_iphone',
+            #        message=f"Consider opening a window since it's {outside_weather['state']} and we want to {goal_mode[:4]} in the {', '.join(goal_rooms)}")
             # TODO ideally we would wait for a while, then resume if the window doesn't open if it's got a sensor
             pass
 
@@ -253,6 +256,7 @@ class ClimateImplementor(hass.Hass):
             return
         if goal_mode is None:
             self.log("Temperature is within comfort range, so not changing thermostat")
+            # TODO when the goal state has changed, we should still reimplement. otherwise, we'll get "stuck" in the tightest bounds since it always satisfies
             #self.call_service('climate/set_hvac_mode', entity_id = self.climate_ent, hvac_mode = 'fan_only')
             return
 
