@@ -205,7 +205,6 @@ class ClimateImplementor(hass.Hass):
             room_calibration[room] = calibration
             self.log(f"Got data for room {room} (selfish={goal['attributes'].get('selfish', False)})")
         # First decide if we're heating, cooling, or failing (TODO alert somehow)
-        outside_temp = self.get_state(self.weather_ent, attribute='temperature')
         goal_mode = None
         goal_rooms = []
         # These 2 are used to determine whether a window could help by tracking the greatest need
@@ -237,9 +236,9 @@ class ClimateImplementor(hass.Hass):
         # this is where we try to open a window
         outside_weather = self.get_state(self.weather_ent, attribute='all')
         outside_temp = outside_weather['attributes']['temperature']
-        window_cooling_eligible = outside_temp + self.window_exchange_min_diff < min_upper_temp
-        window_heating_eligible = outside_temp - self.window_exchange_min_diff > max_lower_temp
-        if outside_weather['state'] in ['sunny', 'partlycloudy', 'cloudy'] and (goal_mode == 'heating' and window_heating_eligible) or (goal_mode == 'cooling' and window_cooling_eligible):
+        passive_cooling_eligible = outside_temp + self.window_exchange_min_diff < min_upper_temp
+        passive_heating_eligible = outside_temp - self.window_exchange_min_diff > max_lower_temp
+        if outside_weather['state'] in ['sunny', 'partlycloudy', 'cloudy'] and (goal_mode == 'heating' and passive_heating_eligible) or (goal_mode == 'cooling' and passive_cooling_eligible):
             # suggest opening a window
             #self.call_service(
             #        'notify/mobile_app_david_iphone',

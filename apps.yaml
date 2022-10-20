@@ -127,8 +127,8 @@ quarterdeck_impl:
   rooms:
     - main
     - bedroom
-    - david_office
     - aysylu_office
+    - david_office
 
 tracker_test:
   class: IrkTracker
