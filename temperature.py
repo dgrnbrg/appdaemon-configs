@@ -207,11 +207,12 @@ class ClimateImplementor(hass.Hass):
             self.log(f"Got data for room {room} (selfish={goal['attributes'].get('selfish', False)})")
         # First decide if we're heating, cooling, or failing (TODO alert somehow)
         goal_mode = None
-        goal_rooms = []
+        goal_rooms = {} # maps room to desired change in temperature
         # These 2 are used to determine whether a window could help by tracking the greatest need
         min_upper_temp = 100
         max_lower_temp = 0
         for room in self.rooms:
+            # Scan all the rooms & find the heat or cooling deltas and the bounds to see if passive exchange is doable
             goal = room_goals[room]
             if has_selfish and not goal['attributes'].get('selfish', False):
                 # if a room is being selfish, skip other rooms
@@ -219,20 +220,24 @@ class ClimateImplementor(hass.Hass):
             calibration = room_calibration[room]
             cur_temp = float(self.get_state(goal['attributes']['temp_sensor']))
             if cur_temp <= goal['attributes']['low']:
-                if goal_mode is None:
-                    goal_mode = 'heating'
-                elif goal_mode != 'heating':
-                    self.error(f'goal mode is already {goal_mode} but we want to heat for {room}')
-                goal_rooms.append(room)
+                goal_rooms[room] = goal['attributes']['low'] - cur_temp
                 max_lower_temp = max(max_lower_temp, goal['attributes']['low'])
             if cur_temp >= goal['attributes']['high']:
-                if goal_mode is None:
-                    goal_mode = 'cooling'
-                elif goal_mode != 'cooling':
-                    self.error(f'goal mode is already {goal_mode} but we want to cool for {room}')
-                goal_rooms.append(room)
+                goal_rooms[room] = goal['attributes']['high'] - cur_temp
                 min_upper_temp = min(min_upper_temp, goal['attributes']['high'])
-            self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']} goal mode is {goal_mode}. min_upper_temp={min_upper_temp} max_lower_temp={max_lower_temp}")
+            self.log(f"after {room} (cur={cur_temp}) with goal {goal['attributes']}. min_upper_temp={min_upper_temp} max_lower_temp={max_lower_temp}")
+        # get the biggest delta room, and try that mode
+        # This way if there's a heating/cooling conflict, we help the saddest room
+        if goal_rooms:
+            biggest_delta = max(goal_rooms, key=lambda x: abs(goal_rooms[x]))
+            self.log(f"room with greatest temp change delta is {biggest_delta} (delta={goal_rooms[biggest_delta]})")
+            if goal_rooms[biggest_delta] < 0:
+                goal_mode = 'cooling'
+            elif goal_rooms[biggest_delta] > 0:
+                goal_mode = 'heating'
+            else:
+                self.error(f"Invalid goal room delta")
+            self.log(f"Given that room delta, we will use goal_mode = {goal_mode}")
         
         # this is where we try to open a window
         outside_weather = self.get_state(self.weather_ent, attribute='all')
