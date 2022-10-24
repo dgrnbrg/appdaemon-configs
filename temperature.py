@@ -21,6 +21,7 @@ def get_sensor_data(entity_id, column, start='-7d'):
     df = influx.query_api.query_data_frame(q).drop(['result','table','_field'], axis=1)
     return df.rename(columns={id_parts[1]: column})
 
+# TODO maybe this should be a linear model instead. Weather, outdoor temp, indoor temp, heating/cool mode. maybe cloudiness, indoor humidity?
 class OffsetCalibration(hass.Hass):
     def initialize(self):
         self.thermostat_ent = self.args["climate_entity"]
@@ -51,12 +52,25 @@ class OffsetCalibration(hass.Hass):
                 offset_df['delta'] = offset_df['remote_temp'] - offset_df['current_temp']
                 result = offset_df[['hvac_mode', 'delta']].groupby('hvac_mode').describe()
                 self.log(result)
-                offset_entity.set_state(state='on', attributes = {
-                    'cooling_offset': result.loc['cool'].loc[('delta','mean')],
-                    'heating_offset': result.loc['heat'].loc[('delta','mean')],
-                    'cooling_stddev': result.loc['cool'].loc[('delta','std')],
-                    'heating_stddev': result.loc['heat'].loc[('delta','std')]
-                })
+                attrs = {
+                    'heating_offset': 0,
+                    'heating_stddev': 0,
+                    'cooling_offset': 0,
+                    'cooling_stddev': 0,
+                }
+                if 'heat' in result.index:
+                    attrs = {
+                        **attrs,
+                        'heating_offset': result.loc['heat'].loc[('delta','mean')],
+                        'heating_stddev': result.loc['heat'].loc[('delta','std')],
+                    }
+                if 'cool' in result.index:
+                    attrs = {
+                        **attrs,
+                        'cooling_offset': result.loc['cool'].loc[('delta','mean')],
+                        'cooling_stddev': result.loc['cool'].loc[('delta','std')],
+                    }
+                offset_entity.set_state(state='on', attributes = attrs)
             except Exception as e:
                 self.error(e)
                 offset_entity.set_state(state='error')
@@ -156,6 +170,8 @@ class ClimateGoal(hass.Hass):
 
 class ClimateImplementor(hass.Hass):
     def initialize(self):
+        self.manual_control = False # when someone has taken manual control, this is a dict from room to goal at that time (used to detect when to revert to automatic)
+        self.last_setting = None # last climate setting, used to detect taking control
         self.climate_ent = self.args['climate_entity']
         self.weather_ent = self.args['weather_entity']
         self.window_exchange_min_diff = self.args.get('window_temp_diff',2)
@@ -164,8 +180,8 @@ class ClimateImplementor(hass.Hass):
         runtime = datetime.time(0, 0, 0)
         self.run_hourly(self.calculate, runtime)
         for room in self.rooms:
-            self.listen_state(self.on_state_changed, f"sensor.climate_goal_{room}")
-        self.listen_state(self.on_state_changed, self.climate_ent)
+            self.listen_state(self.on_goal_changed, f"sensor.climate_goal_{room}")
+        self.listen_state(self.on_climate_changed, self.climate_ent)
         self.listen_state(self.on_state_changed, self.weather_ent)
         self.tracked_temp_sensors = {}
         self.tracked_temp_sensors_refcount = {}
@@ -174,15 +190,29 @@ class ClimateImplementor(hass.Hass):
             goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
             temp_ent = goal['attributes']['temp_sensor']
             if temp_ent not in self.tracked_temp_sensors:
-                self.tracked_temp_sensors[temp_ent] = self.listen_state(self.on_state_changed, temp_ent)
+                self.tracked_temp_sensors[temp_ent] = self.listen_state(self.room_temp_changed, temp_ent)
                 self.tracked_temp_sensors_refcount[temp_ent] = 1
             else:
                 self.tracked_temp_sensors_refcount[temp_ent] += 1
 
-    def on_state_changed(self, entity, attribute, old, new, kwargs):
-        self.log(f"triggered update due to change in {entity} {attribute} from {old} to {new}")
+    def on_climate_changed(self, entity, attribute, old, new, kwargs):
+        temp, mode = self.last_setting
+        climate = self.get_state(self.climate_ent, attribute='all')
+        newtemp = climate['attributes']['temperature']
+        newmode = climate['state']
+        if newmode != mode or newtemp != temp:
+            self.log(f"Climate was changed manually. Last time we set it to {mode} and {temp}, but now it's {newmode} and {newtemp}")
+            self.manual_control = {
+                    room: self.get_state(f"sensor.climate_goal_{room}")
+                    for room in self.rooms
+            }
+        self.log(f"triggered update due to climate change in {entity} {attribute} from {old} to {new}")
         self.calculate({})
-        if entity.startswith("sensor.climate_goal_") and attribute == "temp_sensor":
+
+    def room_temp_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"triggered update due to room temp change in {entity} {attribute} from {old} to {new}")
+        self.calculate({})
+        if attribute == 'temp_sensor':
             self.tracked_temp_sensors_refcount[old] -= 1
             if self.tracked_temp_sensors_refcount[old] == 0:
                 self.cancel_listen_state(old)
@@ -190,8 +220,28 @@ class ClimateImplementor(hass.Hass):
             self.tracked_temp_sensors[new] = self.listen_state(self.on_state_changed, temp_ent)
             self.log("updated the temp sensor for room ^")
 
+    def on_goal_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"triggered update due to change in goal for {entity} {attribute} from {old} to {new}")
+        numChanged = 0
+        for room in self.rooms:
+            goal = self.get_state(f"sensor.climate_goal_{room}", attribute='all')
+            if goal['state'] != self.manual_control[room] or goal['state'] == 'safe':
+                numChanged += 1
+        if numChanged == len(self.rooms):
+            self.manual_control = False
+        self.calculate({})
+
+    def on_state_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"triggered update due to change in {entity} {attribute} from {old} to {new}")
+        self.calculate({})
+
     def calculate(self, kwargs):
+        if self.manual_control:
+            self.log(f"Manual control detected, not making changes")
+            return
         thermostat_ent_parts = self.climate_ent.split('.')
+        temp_impl_entity = self.get_entity(f"sensor.impl_{thermostat_ent_parts[1]}_temperature")
+        mode_impl_entity = self.get_entity(f"sensor.impl_{thermostat_ent_parts[1]}_mode")
         room_goals = {}
         room_calibration = {}
         has_selfish = False
@@ -255,9 +305,13 @@ class ClimateImplementor(hass.Hass):
 
         if goal_mode == 'cooling' and outside_temp < self.args['min_temp_for_ac']:
             self.error(f"Want to cool (cur={cur_temp}, ceiling={goal['attributes']['high']}), but it's too cold outside ({outside_temp})")
+            mode_impl_entity.set_state(state="cannot_cool")
+            temp_impl_entity.set_state(state=0)
             return
         if goal_mode == 'heating' and outside_temp > self.args['max_temp_for_heat']:
             self.error(f"Want to heat (cur={cur_temp}, floor={goal['attributes']['low']}), but it's too warm outside ({outside_temp})")
+            mode_impl_entity.set_state(state="cannot_heat")
+            temp_impl_entity.set_state(state=0)
             return
         if goal_mode is None:
             any_goals_changed = []
@@ -274,11 +328,15 @@ class ClimateImplementor(hass.Hass):
                     goal_mode = 'cooling'
                 else:
                     self.error(f"Thermostat mode {thermostat_mode} isn't heat or cool, so it's not clear how to loosen the bound")
+                    mode_impl_entity.set_state(state="unknown_mode")
+                    temp_impl_entity.set_state(state=0)
                     return
                 self.log(f"since {','.join(any_goals_changed)} changed their goals, we are continuing {goal_mode} (thermostat currently in {thermostat_mode}) but changing the thermostat for cost efficiency")
             else:
                 self.log("Temperature is within comfort range, so not changing thermostat")
                 #self.call_service('climate/set_hvac_mode', entity_id = self.climate_ent, hvac_mode = 'fan_only')
+                mode_impl_entity.set_state(state="within_comfort")
+                temp_impl_entity.set_state(state=0)
                 return
 
         # Next find a low-high spread in the climate ent's temp domain
@@ -339,4 +397,6 @@ class ClimateImplementor(hass.Hass):
         elif goal_mode == 'cooling':
             target_temp = math.floor(target_temp)
         self.log(f"rounded climate impl to {target_temp}")
+        mode_impl_entity.set_state(state=goal_mode)
+        temp_impl_entity.set_state(state=target_temp)
         #self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
