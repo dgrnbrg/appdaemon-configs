@@ -2,9 +2,12 @@ import hassapi as hass
 import pandas as pd
 from Crypto.Cipher import AES
 import dateutil.parser as du
+from datetime import timedelta, datetime
 import os
 from glob import glob
 from sklearn.neighbors import KNeighborsClassifier
+from collections import defaultdict
+import numpy as np
 
 
 identities = {
@@ -42,13 +45,35 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.listen_event(self.fit_model, "irk_tracker.fit_model")
+        self.recent_observations = defaultdict(lambda: [])
 
     def fit_model(self, event_name, data, kwargs):
-        data = pd.concat(pd.read_csv(x) for x in glob(f"{self.data_loc}examples*.csv"))
-        # TODO define base_station_names, a list of locations. Then, pivot data
-        #self.knn_columns = base_station_names
+        dfs = []
+        for x in glob(f'{self.data_loc}examples*.csv'):
+            df = pd.read_csv(x, parse_dates=[0])
+            dfs.append(df)
+        df = pd.concat(dfs)
+        df = df.sort_values(by=['time']).query("device not in ['aysylu phone', 'aysylu watch'] and source not in ['basement_pi']")
+        base_station_names = list(df['source'].unique())
+        rolling_rssi = df.set_index('time').groupby(['device', 'source']).rolling("3min", min_periods=10)['rssi'].mean().reset_index()
+        rolling_labeled = pd.merge(df.drop('rssi', axis=1), rolling_rssi, on=['device', 'source', 'time']).dropna()
+        with_station = rolling_labeled
+        for station in base_station_names:
+            specific_station = rolling_labeled.query(f"source == '{station}'").copy()
+            specific_station = specific_station.drop('source',axis=1).rename(columns={'rssi': station})
+            with_station = pd.merge_asof(with_station, specific_station,
+                                         left_on='time',
+                                         right_on='time',
+                                         direction='backward',
+                                         allow_exact_matches=False,
+                                         tolerance=pd.Timedelta(seconds=5),
+                                         by=['device', 'tag'])
+        for station in base_station_names:
+            with_station[station] = np.where(with_station['source'] == station, with_station['rssi'], with_station[station])
+        with_station = with_station.drop(['source', 'rssi'], axis=1).dropna()#.fillna(-100)
+        self.knn_columns = base_station_names
         self.knn = KNeighborsClassifier(n_neighbors=7)
-        #self.knn.fit(data[self.knn_columns], data["tag"])
+        self.knn.fit(with_station[base_station_names], with_station['tag'])
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
@@ -82,6 +107,8 @@ class IrkTracker(hass.Hass):
         addr = bytes.fromhex(data['addr'].replace(":",""))
         time = du.parse(data['metadata']['time_fired'])
         source = data['source']
+        if source in ['basement_pi']:
+            return
         rssi = data['rssi']
         pt = bytearray(b'\0' * 16)
         pt[15] = addr[2]
@@ -98,8 +125,23 @@ class IrkTracker(hass.Hass):
                     if len(self.recording_df['time']) > self.rows_per_flush:
                         self.flush_recording()
                 # handle publishing update for appropriate entity
+                self.recent_observations[(source,name)].append((time, rssi))
+                while (self.recent_observations[(source,name)][0][0] + timedelta(minutes=3)).timestamp() < datetime.now().timestamp():
+                    self.recent_observations[(source,name)].pop(0)
                 if self.knn:
-                    #self.knn.predict(
-                    # TODO must grab the latest values that are new enough from other sources to match the model's schema
-                    pass
-                #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
+                    means = defaultdict(lambda: 0)
+                    for (source, otherdevice), obs in self.recent_observations.items():
+                        if otherdevice == name:
+                            if len(obs) >= 10:
+                                for (_, rssi) in obs:
+                                    means[source] += float(rssi)
+                                means[source] /= len(obs)
+                            else:
+                                self.log(f"not predicting b/c {source} only has {len(obs)} obs for {name}")
+                    if len(means) == len(self.knn_columns):
+                        room = self.knn.predict([[means[source] for source in self.knn_columns]])[0]
+                        self.log(f"Localized {name} to {room}")
+                    else:
+                        vis = {k:v for k,v in means.items()}
+                        self.log(f"Couldn't localize; only obs from {vis}")
+            #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
