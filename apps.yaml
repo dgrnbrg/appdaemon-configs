@@ -14,6 +14,8 @@ offset_calibration:
     - sensor.david_office_sensor_bme280_temperature
     - sensor.aysylu_office_sensor_bme280_temperature
 
+# TODO incorporate into the implementation
+# TODO compute diffusion for non-primary rooms? (maybe fuck it because the new house doesn't care)
 convergence_speed_calibration:
   class: ConvergenceSpeedCalibration
   module: temperature
@@ -136,3 +138,32 @@ tracker_test:
   training_input_text: input_text.irk_tag
   data_loc: tracker_logs/
   rows_per_flush: 100
+
+  #example_light:
+  #  class: foo
+  #  module: foo
+  #  triggers:
+  #    - presence:
+  #      - sensor1
+  #      - sensor2
+  #      delay_on: 0s
+  #      delay_off: 30s
+  #      turns_on: True
+  #      turns_off: True
+  #    - presence:
+  #      - adjacent_room_sensor1
+  #      - adjacent_room_sensor2
+  #      delay_on: 5s
+  #      delay_off: 0s
+  #      max_brightness: 30%
+  #      turns_on: True
+  #      turns_off: True
+  #    - task: doing_a_thing
+  #      turns_on: True
+  #      turns_off: False
+  #  fake_when_away: True
+  #  people_trackers:
+  #    - device_tracker.david_iphone
+  #    - device_tracker.aysylu_iphone
+  #  daily_off_time: 04:00
+  #  default_state: adaptive

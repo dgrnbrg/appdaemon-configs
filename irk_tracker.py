@@ -73,7 +73,7 @@ class IrkTracker(hass.Hass):
         with_station = with_station.drop(['source', 'rssi'], axis=1).dropna()#.fillna(-100)
         self.knn_columns = base_station_names
         self.knn = KNeighborsClassifier(n_neighbors=7)
-        self.knn.fit(with_station[base_station_names], with_station['tag'])
+        self.knn.fit(with_station[base_station_names].to_numpy(), with_station['tag'].to_numpy())
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
@@ -137,11 +137,11 @@ class IrkTracker(hass.Hass):
                                     means[source] += float(rssi)
                                 means[source] /= len(obs)
                             else:
-                                self.log(f"not predicting b/c {source} only has {len(obs)} obs for {name}")
+                                self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
                     if len(means) == len(self.knn_columns):
                         room = self.knn.predict([[means[source] for source in self.knn_columns]])[0]
                         self.log(f"Localized {name} to {room}")
                     else:
                         vis = {k:v for k,v in means.items()}
-                        self.log(f"Couldn't localize; only obs from {vis}")
+                        self.log(f"Couldn't localize {name}; only obs from {vis}")
             #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
