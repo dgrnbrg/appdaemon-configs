@@ -6,6 +6,7 @@ from datetime import timedelta, datetime
 import os
 from glob import glob
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn import svm
 from collections import defaultdict
 import numpy as np
 
@@ -74,6 +75,20 @@ class IrkTracker(hass.Hass):
         self.knn_columns = base_station_names
         self.knn = KNeighborsClassifier(n_neighbors=7)
         self.knn.fit(with_station[base_station_names].to_numpy(), with_station['tag'].to_numpy())
+        clf1 = svm.SVC()
+        clf1.fit(with_station[['living_room_blinds', 'bedroom_blinds']].to_numpy(),
+                 np.where(with_station['tag'] == "upstairs-both-20221027", "upstairs", "other"))
+        clf2 = svm.SVC()
+        clf2.fit(with_station[['basement_beacon', 'bedroom_blinds']].to_numpy(), np.where(with_station['tag'] == "basement-david-20221027", "basement", "main-floor"))
+        def predict(a):
+            m = {k: v for k,v in zip(base_station_names, a)}
+            r = clf1.predict([[m[x] for x in ['living_room_blinds', 'bedroom_blinds']]])[0]
+            if r == 'other':
+                r = clf2.predict([[m[x] for x in ['basement_beacon', 'bedroom_blinds']]])[0]        
+            return r
+        self.svm = predict
+
+
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
@@ -139,8 +154,14 @@ class IrkTracker(hass.Hass):
                             else:
                                 self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
                     if len(means) == len(self.knn_columns):
-                        room = self.knn.predict([[means[source] for source in self.knn_columns]])[0]
-                        self.log(f"Localized {name} to {room}")
+                        device_entity = self.get_entity(f"sensor.ble_tracker_{name.replace(' ', '_')}")
+                        input_arg = [means[source] for source in self.knn_columns]
+                        room = self.knn.predict([input_arg])[0]
+                        svm_room = self.svm(input_arg)
+                        m = {k: v for k,v in zip(self.knn_columns, input_arg)}
+                        if not room.starts_with(svm_room):
+                            self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
+                        device_entity.set_state(state=svm_room)
                     else:
                         vis = {k:v for k,v in means.items()}
                         self.log(f"Couldn't localize {name}; only obs from {vis}")
