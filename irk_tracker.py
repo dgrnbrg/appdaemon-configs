@@ -2,7 +2,7 @@ import hassapi as hass
 import pandas as pd
 from Crypto.Cipher import AES
 import dateutil.parser as du
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, time
 import os
 from glob import glob
 from sklearn.neighbors import KNeighborsClassifier
@@ -47,6 +47,7 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.listen_event(self.fit_model, "irk_tracker.fit_model")
         self.recent_observations = defaultdict(lambda: [])
+        self.run_minutely(self.inference, time(0,0,0))
 
     def fit_model(self, event_name, data, kwargs):
         dfs = []
@@ -87,8 +88,6 @@ class IrkTracker(hass.Hass):
                 r = clf2.predict([[m[x] for x in ['basement_beacon', 'bedroom_blinds']]])[0]        
             return r
         self.svm = predict
-
-
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
@@ -141,28 +140,32 @@ class IrkTracker(hass.Hass):
                         self.flush_recording()
                 # handle publishing update for appropriate entity
                 self.recent_observations[(source,name)].append((time, rssi))
-                while (self.recent_observations[(source,name)][0][0] + timedelta(minutes=3)).timestamp() < datetime.now().timestamp():
-                    self.recent_observations[(source,name)].pop(0)
-                if self.knn:
-                    means = defaultdict(lambda: 0)
-                    for (source, otherdevice), obs in self.recent_observations.items():
-                        if otherdevice == name:
-                            if len(obs) >= 10:
-                                for (_, rssi) in obs:
-                                    means[source] += float(rssi)
-                                means[source] /= len(obs)
-                            else:
-                                self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
-                    if len(means) == len(self.knn_columns):
-                        device_entity = self.get_entity(f"sensor.ble_tracker_{name.replace(' ', '_')}")
-                        input_arg = [means[source] for source in self.knn_columns]
-                        room = self.knn.predict([input_arg])[0]
-                        svm_room = self.svm(input_arg)
-                        m = {k: v for k,v in zip(self.knn_columns, input_arg)}
-                        if not room.starts_with(svm_room):
-                            self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
-                        device_entity.set_state(state=svm_room)
-                    else:
-                        vis = {k:v for k,v in means.items()}
-                        self.log(f"Couldn't localize {name}; only obs from {vis}")
-            #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
+                #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
+
+    def inference(self, kwargs):
+        for (source, name) in self.recent_observations:
+            while (self.recent_observations[(source,name)][0][0] + timedelta(minutes=3)).timestamp() < datetime.now().timestamp():
+                self.recent_observations[(source,name)].pop(0)
+            if self.knn:
+                means = defaultdict(lambda: 0)
+                for (source, otherdevice), obs in self.recent_observations.items():
+                    if otherdevice == name:
+                        if len(obs) >= 10:
+                            for (_, rssi) in obs:
+                                means[source] += float(rssi)
+                            means[source] /= len(obs)
+                        else:
+                            self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
+                device_entity = self.get_entity(f"sensor.ble_tracker_{name.replace(' ', '_')}")
+                if len(means) == len(self.knn_columns):
+                    input_arg = [means[source] for source in self.knn_columns]
+                    room = self.knn.predict([input_arg])[0]
+                    svm_room = self.svm(input_arg)
+                    m = {k: v for k,v in zip(self.knn_columns, input_arg)}
+                    if not room.startswith(svm_room):
+                        self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
+                    device_entity.set_state(state=svm_room)
+                else:
+                    device_entity.set_state(state='insufficient')
+                    vis = {k:v for k,v in means.items()}
+                    self.log(f"Couldn't localize {name}; only obs from {vis}")
