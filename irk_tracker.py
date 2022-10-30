@@ -139,32 +139,44 @@ class IrkTracker(hass.Hass):
                     if len(self.recording_df['time']) > self.rows_per_flush:
                         self.flush_recording()
                 # handle publishing update for appropriate entity
-                self.recent_observations[(source,name)].append((time, rssi))
+                obs = self.recent_observations[(source,name)]
+                obs.append((time, rssi))
+                self.prune_old_obs(obs)
                 #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
+
+    def prune_old_obs(self, obs):
+        while obs and (obs[0][0] + timedelta(minutes=3)).timestamp() < datetime.now().timestamp():
+            obs.pop(0)
 
     def inference(self, kwargs):
         for (source, name) in self.recent_observations:
-            while (self.recent_observations[(source,name)][0][0] + timedelta(minutes=3)).timestamp() < datetime.now().timestamp():
-                self.recent_observations[(source,name)].pop(0)
             if self.knn:
                 means = defaultdict(lambda: 0)
+                num_detected = 0
                 for (source, otherdevice), obs in self.recent_observations.items():
                     if otherdevice == name:
+                        self.prune_old_obs(obs)
                         if len(obs) >= 10:
                             for (_, rssi) in obs:
                                 means[source] += float(rssi)
                             means[source] /= len(obs)
+                            num_detected += 1
                         else:
                             self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
+                            means[source] = -100.0
                 device_entity = self.get_entity(f"sensor.ble_tracker_{name.replace(' ', '_')}")
-                if len(means) == len(self.knn_columns):
+                if num_detected != 0:
+                    if num_detected != len(means):
+                        self.log(f"only detected {num_detected} stations ({[x for x,v in means.items() if v != -100.0]})")
                     input_arg = [means[source] for source in self.knn_columns]
                     room = self.knn.predict([input_arg])[0]
                     svm_room = self.svm(input_arg)
                     m = {k: v for k,v in zip(self.knn_columns, input_arg)}
                     if not room.startswith(svm_room):
                         self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
-                    device_entity.set_state(state=svm_room)
+                        device_entity.set_state(state=f"{svm_room} and {room}")
+                    else:
+                        device_entity.set_state(state=svm_room)
                 else:
                     device_entity.set_state(state='insufficient')
                     vis = {k:v for k,v in means.items()}
