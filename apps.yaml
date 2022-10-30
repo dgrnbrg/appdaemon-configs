@@ -150,6 +150,7 @@ tracker_test:
   #      delay_off: 30s
   #      turns_on: True
   #      turns_off: True
+  #      transition: 4
   #    - presence:
   #      - adjacent_room_sensor1
   #      - adjacent_room_sensor2
@@ -158,6 +159,7 @@ tracker_test:
   #      max_brightness: 30%
   #      turns_on: True
   #      turns_off: True
+  #      transition: 5
   #    - task: doing_a_thing
   #      turns_on: True
   #      turns_off: False
@@ -165,5 +167,22 @@ tracker_test:
   #  people_trackers:
   #    - device_tracker.david_iphone
   #    - device_tracker.aysylu_iphone
-  #  daily_off_time: 04:00
-  #  default_state: adaptive
+  #  daily_off_time: 04:00:00
+  #  adaptive_lighting: switch.adaptive_lighting_default
+
+
+
+  #living_room_lights:
+  #  class: LightController
+  #  module: lights
+  #  triggers:
+  #    - task: input_boolean.watching_tv
+  #      max_brightness: 30%
+  #      transition: 8
+  #    - presence:
+  #      - device_tracker.david_iphone == home
+  #      - device_tracker.aysylu_iphone == home
+  #      - device_tracker.david_iphone_app == home
+  #      - device_tracker.aysylu_iphone_app == home
+  #  adaptive_lighting: switch.adaptive_lighting_default
+  #  light: light.living_room

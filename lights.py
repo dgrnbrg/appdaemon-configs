@@ -26,16 +26,36 @@ class LightController(hass.Hass):
             trigger['off_timers'] = []
             trigger['states'] = {}
             trigger['state'] = 'init'
-            tasks = t.get('task', t['presence'])
-            if isinstance(trigger['tasks'], list):
-                trigger['tasks'] = tasks
+            causes = t.get('task', t['presence'])
+            if isinstance(causes, list):
+                trigger['causes'] = causes
             else:
-                trigger['tasks'] = [tasks]
-            for t in tasks:
+                trigger['causes'] = [causes]
+            for cause in causes:
+                present_state = 'on'
+                absent_state = 'off'
+                if '==' in cause:
+                    xs = [x.trim() for x in cause.split('==')]
+                    print(f"parsing a state override light trigger")
+                    entity = xs[0]
+                    present_state = xs[1]
+                    absent_state = None
+                elif '!=' in cause:
+                    xs = [x.trim() for x in cause.split('!=')]
+                    print(f"parsing a negative state override light trigger")
+                    entity = xs[0]
+                    present_state = None
+                    absent_state = xs[1]
                 if t.get('turns_on', True):
-                    self.listen_state(self.trigger_on, t, new='on', duration=t.get('delay_on', None), trigger=trigger)
+                    if present_state:
+                        self.listen_state(self.trigger_on, cause, new=present_state, duration=t.get('delay_on', None), trigger=trigger)
+                    else:
+                        self.listen_state(self.trigger_on, cause, duration=t.get('delay_on', None), trigger=trigger, absent_state=absent_state)
                 if t.get('turns_off', True):
-                    self.listen_state(self.trigger_off, t, new='off', duration=t.get('delay_off', None), trigger=trigger)
+                    if absent_state:
+                        self.listen_state(self.trigger_off, cause, new=absent_state, duration=t.get('delay_off', None), trigger=trigger)
+                    else:
+                        self.listen_state(self.trigger_off, cause, duration=t.get('delay_off', None), trigger=trigger, present_state=present_state)
             self.triggers.append(trigger)
         self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_mired', immediate=True)
         self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
@@ -50,6 +70,9 @@ class LightController(hass.Hass):
             self.update_light()
 
     def trigger_off(self, entity, attr, old, new, kwargs):
+        if 'present_state' in kwargs: # this may be a false trigger if using a state comparison
+            if new == kwargs['present_state']:
+                return
         old_state = trigger['state']
         trigger = kwargs['trigger']
         trigger['states'][entity] = 'off'
@@ -64,6 +87,9 @@ class LightController(hass.Hass):
                 self.update_light()
 
     def trigger_on(self, entity, attr, old, new, kwargs):
+        if 'absent_state' in kwargs: # this may be a false trigger if using a state comparison
+            if new == kwargs['absent_state']:
+                return
         old_state = trigger['state']
         trigger = kwargs['trigger']
         trigger['states'][entity] = 'on'
