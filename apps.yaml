@@ -172,17 +172,17 @@ tracker_test:
 
 
 
-  #living_room_lights:
-  #  class: LightController
-  #  module: lights
-  #  triggers:
-  #    - task: input_boolean.watching_tv
-  #      max_brightness: 30%
-  #      transition: 8
-  #    - presence:
-  #      - device_tracker.david_iphone == home
-  #      - device_tracker.aysylu_iphone == home
-  #      - device_tracker.david_iphone_app == home
-  #      - device_tracker.aysylu_iphone_app == home
-  #  adaptive_lighting: switch.adaptive_lighting_default
-  #  light: light.living_room
+living_room_lights:
+  class: LightController
+  module: lights
+  triggers:
+    - task: input_boolean.watching_tv
+      max_brightness: 30%
+      transition: 8
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone_app == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.living_room
