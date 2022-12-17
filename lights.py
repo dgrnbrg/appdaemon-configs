@@ -170,6 +170,16 @@ class LightController(hass.Hass):
             else:
                 has = self.light == entity_id
         if has:
+            # janky support for toggle
+            if data['service'] == 'toggle':
+                cur_state = self.get_state(self.light)
+                print(f"toggle reveals the entity is {cur_state}")
+                if cur_state == 'on':
+                    data['service'] = 'turn_off'
+                elif cur_state == 'off':
+                    data['service'] = 'turn_on'
+                else:
+                    self.log(f"Unexpected state for {self.light}: {cur_state}")
             if data['service'] == 'turn_on':
                 if 'brightness_pct' in service_data:
                     new_brightness = service_data['brightness_pct']
