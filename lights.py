@@ -25,6 +25,7 @@ class LightController(hass.Hass):
         #for t in self.people_trackers:
         #    self.listen_state(self.on_people_tracker_changed, t)
         self.state = 'init'
+        #print(f"light controller args: {self.args}")
         self.daily_off_time = self.args.get('daily_off_time', '04:00:00')
         self.triggers = []
         for i, t in enumerate(self.args['triggers']):
@@ -58,13 +59,13 @@ class LightController(hass.Hass):
                 entity = cause
                 if '==' in cause:
                     xs = [x.strip() for x in cause.split('==')]
-                    print(f"parsing a state override light trigger {xs}")
+                    #print(f"parsing a state override light trigger {xs}")
                     entity = xs[0]
                     present_state = xs[1]
                     absent_state = None
                 elif '!=' in cause:
                     xs = [x.trim() for x in cause.split('!=')]
-                    print(f"parsing a negative state override light trigger")
+                    #print(f"parsing a negative state override light trigger")
                     entity = xs[0]
                     present_state = None
                     absent_state = xs[1]
@@ -88,8 +89,8 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def reset_manual(self, kwargs):
-        if self.state == 'manual':
-            self.state = 'off'
+        if self.state == 'manual' or self.state == 'manual_on':
+            self.state = 'returning'
             self.update_light()
 
     @ad.app_lock
@@ -192,20 +193,32 @@ class LightController(hass.Hass):
                         self.state = 'manual'
                     self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
                 else:
-                    self.log(f"saw {self.light} turn on without settings. Returning to automatic {service_data}.")
+                    self.log(f"saw {self.light} turn on without settings.")
+                    if self.state == 'manual_off':
+                        self.log(f"from on: Returning to automatic {service_data}.")
+                        self.state = 'returning'
+                        self.update_light()
+                    else:
+                        self.log(f"saw an unexpected change to on, going to manual")
+                        self.state = 'manual'
+            # check if we did a turn off, and 
+            elif data['service'] == 'turn_off' :
+                self.log(f"saw {self.light} turn off without settings (cur state = {self.state}).")
+                # if the state isn't off or a trigger that is supposed to be turned off
+                if self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
+                    self.log(f"saw an unexpected change to off, going to manual")
+                    self.state = 'manual_off'
+                elif self.state == 'manual': # does turning off mean we return to auto?
+                    self.log(f"from off: Returning to automatic {service_data}.")
                     self.state = 'returning'
                     self.update_light()
-            # check if we did a turn off, and the state isn't off or a trigger that is supposed to be turned off
-            elif data['service'] == 'turn_off' and self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
-                self.log(f"saw an unexpected change to off, going to manual")
-                self.state = 'manual'
 
     def update_light(self):
         if len(self.do_update) != 2:
             return
         # check each trigger to see if it's enabled.
         # also handle the delay functions
-        if self.state == 'manual':
+        if self.state == 'manual' or self.state == 'manual_off':
             # don't be automatic in this case
             self.log(f"not updating light b/c it's in manual mode")
             return

@@ -191,6 +191,23 @@ living_room_lights:
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.living_room
 
+curio_light:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone_app == home
+      condition: input_boolean.it_is_evening
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.curio_lights
+
 dining_room_accent_light:
   class: LightController
   module: lights
@@ -245,7 +262,7 @@ dining_room_lights:
       - device_tracker.david_iphone_app == home
       - device_tracker.aysylu_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
-  light: light.dining
+  light: light.dining_table_fan_fixture
 
 david_office_lights:
   class: LightController
