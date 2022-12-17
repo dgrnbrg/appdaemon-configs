@@ -176,6 +176,10 @@ living_room_lights:
   class: LightController
   module: lights
   triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
     - task: input_boolean.watching_tv
       max_brightness: 30%
       transition: 8
@@ -186,3 +190,108 @@ living_room_lights:
       - device_tracker.aysylu_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.living_room
+
+dining_room_accent_light:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - task: input_boolean.watching_tv
+      state: turned_off
+      transition: 8
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone_app == home
+      condition: input_boolean.it_is_evening
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.triangle_lamp
+
+coffee_table_light:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone_app == home
+      condition: input_boolean.it_is_evening
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.coffee_table
+
+dining_room_lights:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - task: input_boolean.watching_tv
+      state: turned_off
+      transition: 8
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone_app == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.dining
+
+david_office_lights:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.david_iphone_app == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.david_office
+
+kitchen_lights:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.aysylu_iphone_app == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.kitchen
+
+stairs_lights:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - task: input_boolean.watching_tv
+      state: turned_off
+      transition: 8
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.david_iphone_app == home
+      - device_tracker.aysylu_iphone == home
+      - device_tracker.aysylu_iphone_app == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.stairs

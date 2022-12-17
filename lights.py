@@ -1,9 +1,19 @@
 import hassapi as hass
+import adbase as ad
 import datetime
+import math
+
+def color_temperature_kelvin_to_mired(kelvin_temperature: float) -> int:
+    """Convert degrees kelvin to mired shift."""
+    return math.floor(1000000 / kelvin_temperature)
+
+def color_temperature_mired_to_kelvin(mired_temperature: float) -> int:
+    """Convert absolute mired shift to degrees kelvin."""
+    return math.floor(1000000 / mired_temperature)
 
 class LightController(hass.Hass):
+    @ad.app_lock
     def initialize(self):
-        self.set_app_pin(True)
         self.light = self.args['light']
         self.do_update = set()
         self.target_brightness = 0
@@ -28,6 +38,11 @@ class LightController(hass.Hass):
                 else:
                     trigger['max_brightness'] = int(trigger['max_brightness'])
             trigger['transition'] = t.get('transition', 3)
+            trigger['target_state'] = t.get('state', 'turned_on')
+            conditions = t.get('condition', [])
+            if not isinstance(conditions, list):
+                conditions = [conditions]
+            trigger['conditions'] = conditions
             trigger['on_timers'] = []
             trigger['off_timers'] = []
             trigger['states'] = {}
@@ -71,16 +86,21 @@ class LightController(hass.Hass):
         self.run_daily(self.reset_manual, self.daily_off_time)
         self.log(f"Completed initialization for {self.light}")
 
+    @ad.app_lock
     def reset_manual(self, kwargs):
         if self.state == 'manual':
             self.state = 'off'
             self.update_light()
 
+    @ad.app_lock
     def trigger_off(self, entity, attr, old, new, kwargs):
         if 'present_state' in kwargs: # this may be a false trigger if using a state comparison
             if new == kwargs['present_state']:
                 return
         trigger = self.triggers[kwargs['trigger']]
+        for cond in trigger['conditions']: # don't trigger if conditions aren't met
+            if self.get_state(cond) != 'on':
+                return
         old_state = trigger['state']
         trigger['states'][entity] = 'off'
         all_off = True
@@ -94,12 +114,16 @@ class LightController(hass.Hass):
             if old_state != 'off':
                 self.update_light()
 
+    @ad.app_lock
     def trigger_on(self, entity, attr, old, new, kwargs):
         if 'absent_state' in kwargs: # this may be a false trigger if using a state comparison
             if new == kwargs['absent_state']:
                 return
         self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
         trigger = self.triggers[kwargs['trigger']]
+        for cond in trigger['conditions']: # don't trigger if conditions aren't met
+            if self.get_state(cond) != 'on':
+                return
         old_state = trigger['state']
         trigger['states'][entity] = 'on'
         trigger['state'] = 'on'
@@ -107,6 +131,7 @@ class LightController(hass.Hass):
         if old_state != 'on':
             self.update_light()
 
+    @ad.app_lock
     def update_people_tracker(self):
         # TODO figure out how to actually apply this stuff
         self.state = 'away'
@@ -118,16 +143,19 @@ class LightController(hass.Hass):
     #def on_people_tracker_changed(self, entity, attribute, old, new, kwargs):
     #    self.update_people_tracker()
 
+    @ad.app_lock
     def on_adaptive_lighting_brightness(self, entity, attribute, old, new, kwargs):
         self.do_update.add('bright')
         self.brightness = new
         self.update_light()
 
+    @ad.app_lock
     def on_adaptive_lighting_temp(self, entity, attribute, old, new, kwargs):
         self.do_update.add('temp')
         self.color_temp = new
         self.update_light()
 
+    @ad.app_lock
     def service_snoop(self, event_name, data, kwargs):
         if data['domain'] != 'light':
             return
@@ -149,11 +177,26 @@ class LightController(hass.Hass):
                         # probably was a manual override
                         self.state = 'manual'
                     self.log(f'saw a change in brightness. delta is {delta}. state is now {self.state}')
+                elif 'color_temp' in service_data:
+                    new_color_temp = service_data['color_temp']
+                    delta = abs(new_color_temp - self.color_temp) / new_color_temp
+                    if delta > 0.05:
+                        # probably was a manual override
+                        self.state = 'manual'
+                    self.log(f'saw a change in color temp. delta is {delta}. state is now {self.state}')
+                elif 'color_temp_kelvin' in service_data:
+                    new_color_temp = color_temperature_kelvin_to_mired(service_data['color_temp_kelvin'])
+                    delta = abs(new_color_temp - self.color_temp) / new_color_temp
+                    if delta > 0.05:
+                        # probably was a manual override
+                        self.state = 'manual'
+                    self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
                 else:
-                    self.log(f"saw {self.light} turn on without settings. Returning to automatic.")
+                    self.log(f"saw {self.light} turn on without settings. Returning to automatic {service_data}.")
                     self.state = 'returning'
                     self.update_light()
-            elif data['service'] == 'turn_off' and self.state != 'off':
+            # check if we did a turn off, and the state isn't off or a trigger that is supposed to be turned off
+            elif data['service'] == 'turn_off' and self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
                 self.log(f"saw an unexpected change to off, going to manual")
                 self.state = 'manual'
 
@@ -168,12 +211,18 @@ class LightController(hass.Hass):
             return
         for trigger in self.triggers:
             if trigger['state'] == 'on':
-                if self.state != trigger['index']:
-                    self.state = trigger['index']
-                    brightness = min(self.brightness, trigger['max_brightness'])
-                    self.target_brightness = brightness
+                #if self.state != trigger['index']:
+                self.state = trigger['index']
+                brightness = min(self.brightness, trigger['max_brightness'])
+                self.target_brightness = brightness
+                if trigger['target_state'] == 'turned_on':
                     self.get_entity(self.light).turn_on(brightness_pct=brightness, color_temp=self.color_temp, transition=trigger['transition'])
                     self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness}")
+                elif trigger['target_state'] == 'turned_off':
+                    self.get_entity(self.light).turn_off(transition=trigger['transition'])
+                    self.log(f"Matched {self.light} trigger {trigger}, turning off")
+                else:
+                    self.log(f"Matched {self.light} trigger {trigger}, but the target_state wasn't understood")
                 return
         self.state = 'off'
         # no triggers were active, so either we're off or we're faking
