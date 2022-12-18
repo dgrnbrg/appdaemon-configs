@@ -29,8 +29,8 @@ bedroom_goal:
   dependencies:
     - offset_calibration
   people_trackers:
-    - device_tracker.david_iphone
-    - device_tracker.aysylu_iphone
+    - device_tracker.david_iphone_app
+    - device_tracker.aysylu_iphone_app
   presence_ent: True
   room: bedroom
   temp_ent: sensor.bedroom_sensor_bme280_temperature
@@ -56,8 +56,8 @@ main_floor_goal:
   dependencies:
     - offset_calibration
   people_trackers:
-    - device_tracker.david_iphone
-    - device_tracker.aysylu_iphone
+    - device_tracker.david_iphone_app
+    - device_tracker.aysylu_iphone_app
   presence_ent: True
   room: main
   temp_ent: sensor.main_floor_sensor_bme280_temperature
@@ -99,7 +99,7 @@ david_office_goal:
   dependencies:
     - offset_calibration
   people_trackers:
-    - device_tracker.david_iphone
+    - device_tracker.david_iphone_app
   presence_ent: True
   room: david_office
   temp_ent: sensor.david_office_sensor_bme280_temperature
@@ -165,8 +165,8 @@ tracker_test:
   #      turns_off: False
   #  fake_when_away: True
   #  people_trackers:
-  #    - device_tracker.david_iphone
-  #    - device_tracker.aysylu_iphone
+  #    - device_tracker.david_iphone_app
+  #    - device_tracker.aysylu_iphone_app
   #  daily_off_time: 04:00:00
   #  adaptive_lighting: switch.adaptive_lighting_default
 
@@ -184,8 +184,6 @@ living_room_lights:
       max_brightness: 30%
       transition: 8
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.david_iphone_app == home
       - device_tracker.aysylu_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
@@ -200,8 +198,6 @@ curio_light:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.david_iphone_app == home
       - device_tracker.aysylu_iphone_app == home
       condition: input_boolean.it_is_evening
@@ -220,8 +216,6 @@ dining_room_accent_light:
       state: turned_off
       transition: 8
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.david_iphone_app == home
       - device_tracker.aysylu_iphone_app == home
       condition: input_boolean.it_is_evening
@@ -237,8 +231,6 @@ coffee_table_light:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.david_iphone_app == home
       - device_tracker.aysylu_iphone_app == home
       condition: input_boolean.it_is_evening
@@ -257,8 +249,6 @@ dining_room_lights:
       state: turned_off
       transition: 8
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.david_iphone_app == home
       - device_tracker.aysylu_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
@@ -273,7 +263,6 @@ david_office_lights:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - device_tracker.david_iphone == home
       - device_tracker.david_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.david_office
@@ -287,9 +276,7 @@ kitchen_lights:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - device_tracker.david_iphone == home
       - device_tracker.david_iphone_app == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.aysylu_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.kitchen
@@ -306,9 +293,7 @@ stairs_lights:
       state: turned_off
       transition: 8
     - presence:
-      - device_tracker.david_iphone == home
       - device_tracker.david_iphone_app == home
-      - device_tracker.aysylu_iphone == home
       - device_tracker.aysylu_iphone_app == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.stairs
