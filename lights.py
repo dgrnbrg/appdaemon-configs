@@ -3,6 +3,7 @@ import adbase as ad
 import datetime
 import math
 
+
 def color_temperature_kelvin_to_mired(kelvin_temperature: float) -> int:
     """Convert degrees kelvin to mired shift."""
     return math.floor(1000000 / kelvin_temperature)
@@ -11,19 +12,56 @@ def color_temperature_mired_to_kelvin(mired_temperature: float) -> int:
     """Convert absolute mired shift to degrees kelvin."""
     return math.floor(1000000 / mired_temperature)
 
+def parse_conditional_expr(cause):
+    present_state = 'on'
+    absent_state = 'off'
+    entity = cause
+    if '==' in cause:
+        xs = [x.strip() for x in cause.split('==')]
+        #print(f"parsing a state override light trigger {xs}")
+        entity = xs[0]
+        present_state = xs[1]
+        absent_state = None
+    elif '!=' in cause:
+        xs = [x.trim() for x in cause.split('!=')]
+        #print(f"parsing a negative state override light trigger")
+        entity = xs[0]
+        present_state = None
+        absent_state = xs[1]
+    return present_state, absent_state, entity
+
 class LightController(hass.Hass):
+    """
+    This does presence-based light control.
+
+    First, for global settings:
+    - adaptive_lighting is used as a source for automatic brightness and color temperature adjustment for a circadian household
+    - light is the actual controlled light entity for this
+    - off_transition is the number of seconds to fade to off, by default
+    - daily_off_time is when the light is reset to its automatic state
+
+    Then, we have triggers. The triggers each have their constituent information continuously updated.
+    The first active trigger is applied to the light, so that triggers can preempt others.
+    No active triggers means the light is off.
+    Triggers have many configurable settings:
+    - transition is the duration that the light fades when activating this trigger
+    - delay_on/delay_off requires that the trigger's presence/task inputs to be on/off for that many seconds before triggering on/off
+    - state can be "turned_off" for a trigger that turns the light off completely
+    - max_brightness clamps the brightness of the circadian lighting (for mood, e.g. when watching tv or going to the bathroom late at night)
+    - presence/task are the same. When any of the conditions are true (they can be on/off entities, or a text entity with == or !=), the trigger turns on. When they're all false, the trigger turns off.
+    - condition is similar to presence, except that every condition must be true for the trigger to turn on.
+
+    Presence and condition can be thought of as the following:
+    presence is used for whether something is being done, such as being in a space, sleeping, or doing an activity
+    condition is used to validate that it's an appropriate time, such as whether it's dark out
+    """
     @ad.app_lock
     def initialize(self):
         self.light = self.args['light']
         self.do_update = set()
         self.target_brightness = 0
-        self.off_transition = self.args.get('off_tranisition', 5)
+        self.off_transition = self.args.get('off_transition', 5)
         self.fake_when_away = self.args.get('fake_when_away', True)
-        # self.people_trackers = self.args['people_trackers']
-        #if not isinstance(self.people_trackers, list):
-        #    self.people_trackers = [self.people_trackers]
-        #for t in self.people_trackers:
-        #    self.listen_state(self.on_people_tracker_changed, t)
         self.state = 'init'
         #print(f"light controller args: {self.args}")
         self.daily_off_time = self.args.get('daily_off_time', '04:00:00')
@@ -40,49 +78,49 @@ class LightController(hass.Hass):
                     trigger['max_brightness'] = int(trigger['max_brightness'])
             trigger['transition'] = t.get('transition', 3)
             trigger['target_state'] = t.get('state', 'turned_on')
-            conditions = t.get('condition', [])
-            if not isinstance(conditions, list):
-                conditions = [conditions]
-            trigger['conditions'] = conditions
             trigger['on_timers'] = []
             trigger['off_timers'] = []
             trigger['states'] = {}
             trigger['state'] = 'init'
-            causes = t.get('task', t.get('presence', None))
-            if not isinstance(causes, list):
-                causes = [causes]
-            trigger['causes'] = causes
-            self.log(f"on {self.light}, looking at {causes}")
-            for cause in causes:
-                present_state = 'on'
-                absent_state = 'off'
-                entity = cause
-                if '==' in cause:
-                    xs = [x.strip() for x in cause.split('==')]
-                    #print(f"parsing a state override light trigger {xs}")
-                    entity = xs[0]
-                    present_state = xs[1]
-                    absent_state = None
-                elif '!=' in cause:
-                    xs = [x.trim() for x in cause.split('!=')]
-                    #print(f"parsing a negative state override light trigger")
-                    entity = xs[0]
-                    present_state = None
-                    absent_state = xs[1]
+            # causes can have 2 subheadings, "presence/task" and "condition".
+            # At least one from "presence/task" must be true, and everything from
+            # "condition" must be true, in order to activate the trigger
+            any_causes = t.get('task', t.get('presence', None))
+            if not isinstance(any_causes, list):
+                any_causes = [any_causes]
+            trigger['any_causes'] = any_causes
+            self.log(f"on {self.light}, looking at {any_causes}")
+            all_causes = t.get('condition', [])
+            if not isinstance(all_causes, list):
+                all_causes = [all_causes]
+            any_causes = [parse_conditional_expr(x) for x in any_causes]
+            all_causes = [parse_conditional_expr(x) for x in all_causes]
+            pes = trigger['presence_entities'] = [e for (_,_,e) in any_causes]
+            ces = trigger['condition_entities'] = [e for (_,_,e) in all_causes]
+            if len(pes) + len(ces) != len(set(ces + pes)):
+                raise ValueError(f"Condition and presence entities must appear only once each")
+            for present_state, absent_state, entity in any_causes + all_causes:
                 if t.get('turns_on', True):
+                    if entity in presence_entities:
+                        duration = t.get('delay_on', 0)
+                    else:
+                        duration = 0
                     if present_state:
-                        self.listen_state(self.trigger_on, entity, new=present_state, duration=t.get('delay_on', 0), trigger=i, immediate=True)
+                        self.listen_state(self.trigger_on, entity, new=present_state, duration=duration, trigger=i, immediate=True)
                     else:
-                        self.listen_state(self.trigger_on, entity, duration=t.get('delay_on', 0), trigger=i, absent_state=absent_state, immediate=True)
+                        self.listen_state(self.trigger_on, entity, duration=duration, trigger=i, absent_state=absent_state, immediate=True)
                 if t.get('turns_off', True):
-                    if absent_state:
-                        self.listen_state(self.trigger_off, entity, new=absent_state, duration=t.get('delay_off', 0), trigger=i, immediate=True)
+                    if entity in presence_entities:
+                        duration = t.get('delay_off', 0)
                     else:
-                        self.listen_state(self.trigger_off, entity, duration=t.get('delay_off', 0), trigger=i, present_state=present_state, immediate=True)
+                        duration = 0
+                    if absent_state:
+                        self.listen_state(self.trigger_off, entity, new=absent_state, duration=duration, trigger=i, immediate=True)
+                    else:
+                        self.listen_state(self.trigger_off, entity, duration=duration, trigger=i, present_state=present_state, immediate=True)
             self.triggers.append(trigger)
         self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_mired', immediate=True)
         self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
-        #self.update_people_tracker()
         self.listen_event(self.service_snoop, "call_service")
         self.run_daily(self.reset_manual, self.daily_off_time)
         self.log(f"Completed initialization for {self.light}")
@@ -99,18 +137,17 @@ class LightController(hass.Hass):
             if new == kwargs['present_state']:
                 return
         trigger = self.triggers[kwargs['trigger']]
-        for cond in trigger['conditions']: # don't trigger if conditions aren't met
-            if self.get_state(cond) != 'on':
-                return
         old_state = trigger['state']
         trigger['states'][entity] = 'off'
-        all_off = True
+        all_presence_off = True
+        any_condition_off = False
         for t,v in trigger['states'].items():
-            if v != 'off':
-                all_off = False
-                break
-        self.log(f'trigger off for {self.light} because {entity} is off. all off={all_off}. prev={old_state}. states = {trigger["states"]}')
-        if all_off:
+            if v != 'off' and t in trigger['presence_entities']:
+                all_presence_off = False
+            if v == 'off' and t in trigger['condition_entities']:
+                any_condition_off = True
+        self.log(f'trigger off for {self.light} because {entity} is off. all presence off={all_presence_off}. all condition off={any_condition_off}. prev={old_state}. states = {trigger["states"]}')
+        if all_presence_off or any_condition_off:
             trigger['state'] = 'off'
             if old_state != 'off':
                 self.update_light()
@@ -122,27 +159,20 @@ class LightController(hass.Hass):
                 return
         self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
         trigger = self.triggers[kwargs['trigger']]
-        for cond in trigger['conditions']: # don't trigger if conditions aren't met
-            if self.get_state(cond) != 'on':
-                return
         old_state = trigger['state']
         trigger['states'][entity] = 'on'
-        trigger['state'] = 'on'
-        self.log(f'trigger on for {self.light} because {entity} is on. prev={old_state}')
-        if old_state != 'on':
-            self.update_light()
-
-    @ad.app_lock
-    def update_people_tracker(self):
-        # TODO figure out how to actually apply this stuff
-        self.state = 'away'
-        for p in self.people_trackers:
-            s = self.get_state(p)
-            if s == 'home': # someone is home
-                self.state = 'home'
-
-    #def on_people_tracker_changed(self, entity, attribute, old, new, kwargs):
-    #    self.update_people_tracker()
+        all_conditions_on = True
+        any_presence_on = False
+        for t,v in trigger['states'].items():
+            if v == 'on' and t in trigger['presence_entities']:
+                any_presence_on = True
+            if v != 'on' and t in trigger['condition_entities']:
+                all_conditions_on = False
+        if all_conditions_on and any_presence_on:
+            trigger['state'] = 'on'
+            self.log(f'trigger on for {self.light} because {entity} went on. any presence on={any_presence_on}. all conditions on={all_conditions_on}. prev={old_state}')
+            if old_state != 'on':
+                self.update_light()
 
     @ad.app_lock
     def on_adaptive_lighting_brightness(self, entity, attribute, old, new, kwargs):
@@ -207,7 +237,7 @@ class LightController(hass.Hass):
                     if self.state == 'manual_off':
                         self.log(f"from on: Returning to automatic {service_data}.")
                         self.state = 'returning'
-                    else:
+                    elif self.state == 'off' or isinstance(self.state, int) and self.triggers[self.state]['target_state'] == 'turned_off': # it turned on but it should be off
                         self.log(f"saw an unexpected change to on, going to manual")
                         self.state = 'manual'
                         self.update_light()
