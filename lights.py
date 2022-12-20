@@ -4,14 +4,6 @@ import datetime
 import math
 
 
-def color_temperature_kelvin_to_mired(kelvin_temperature: float) -> int:
-    """Convert degrees kelvin to mired shift."""
-    return math.floor(1000000 / kelvin_temperature)
-
-def color_temperature_mired_to_kelvin(mired_temperature: float) -> int:
-    """Convert absolute mired shift to degrees kelvin."""
-    return math.floor(1000000 / mired_temperature)
-
 def parse_conditional_expr(cause):
     present_state = 'on'
     absent_state = 'off'
@@ -119,7 +111,7 @@ class LightController(hass.Hass):
                     else:
                         self.listen_state(self.trigger_off, entity, duration=duration, trigger=i, present_state=present_state, immediate=True)
             self.triggers.append(trigger)
-        self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_mired', immediate=True)
+        self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_kelvin', immediate=True)
         self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
         self.listen_event(self.service_snoop, "call_service")
         self.run_daily(self.reset_manual, self.daily_off_time)
@@ -226,7 +218,7 @@ class LightController(hass.Hass):
                         self.state = 'manual'
                     self.log(f'saw a change in color temp. delta is {delta}. state is now {self.state}')
                 elif 'color_temp_kelvin' in service_data:
-                    new_color_temp = color_temperature_kelvin_to_mired(service_data['color_temp_kelvin'])
+                    new_color_temp = service_data['color_temp_kelvin']
                     delta = abs(new_color_temp - self.color_temp) / new_color_temp
                     if delta > 0.05:
                         # probably was a manual override
@@ -278,8 +270,8 @@ class LightController(hass.Hass):
                 brightness = min(self.brightness, trigger['max_brightness'])
                 self.target_brightness = brightness
                 if trigger['target_state'] == 'turned_on':
-                    self.get_entity(self.light).turn_on(brightness_pct=brightness, color_temp=self.color_temp, transition=trigger['transition'])
                     self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness}")
+                    self.get_entity(self.light).turn_on(brightness_pct=brightness, color_temp=self.color_temp, transition=trigger['transition'])
                 elif trigger['target_state'] == 'turned_off':
                     self.get_entity(self.light).turn_off(transition=trigger['transition'])
                     self.log(f"Matched {self.light} trigger {trigger}, turning off")
