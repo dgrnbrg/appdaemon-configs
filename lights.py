@@ -255,7 +255,7 @@ class LightController(hass.Hass):
             state_entity = self.get_entity(f"sensor.light_state_{light_name}")
             if str(self.state) != state_entity.get_state():
                 old_state = state_entity.get_state()
-                state_entity.set_state(state=str(self.state), attributes={'old_state': old_state})
+                state_entity.set_state(state=str(self.state), attributes={'old_state': old_state, 'active_triggers': [x['index'] for x in self.triggers if x['state'] == 'on']})
         # check each trigger to see if it's enabled.
         # also handle the delay functions
         if self.state == 'manual' or self.state == 'manual_off':
