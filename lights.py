@@ -101,7 +101,7 @@ class LightController(hass.Hass):
                 raise ValueError(f"Condition and presence entities must appear only once each")
             for present_state, absent_state, entity in any_causes + all_causes:
                 if t.get('turns_on', True):
-                    if entity in presence_entities:
+                    if entity in pes:
                         duration = t.get('delay_on', 0)
                     else:
                         duration = 0
@@ -110,7 +110,7 @@ class LightController(hass.Hass):
                     else:
                         self.listen_state(self.trigger_on, entity, duration=duration, trigger=i, absent_state=absent_state, immediate=True)
                 if t.get('turns_off', True):
-                    if entity in presence_entities:
+                    if entity in pes:
                         duration = t.get('delay_off', 0)
                     else:
                         duration = 0
@@ -292,3 +292,4 @@ class LightController(hass.Hass):
         self.get_entity(self.light).turn_off(transition=self.off_transition)
         self.log(f"no triggers active for {self.light}, turning off")
         update_stored_state()
+
