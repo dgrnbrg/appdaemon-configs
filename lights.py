@@ -207,10 +207,10 @@ class LightController(hass.Hass):
                     if self.state == 'manual_off':
                         self.log(f"from on: Returning to automatic {service_data}.")
                         self.state = 'returning'
-                        self.update_light()
                     else:
                         self.log(f"saw an unexpected change to on, going to manual")
                         self.state = 'manual'
+                        self.update_light()
             # check if we did a turn off, and 
             elif data['service'] == 'turn_off' :
                 self.log(f"saw {self.light} turn off without settings (cur state = {self.state}).")
@@ -218,6 +218,7 @@ class LightController(hass.Hass):
                 if self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
                     self.log(f"saw an unexpected change to off, going to manual")
                     self.state = 'manual_off'
+                    self.update_light()
                 elif self.state == 'manual': # does turning off mean we return to auto?
                     self.log(f"from off: Returning to automatic {service_data}.")
                     self.state = 'returning'
@@ -226,11 +227,19 @@ class LightController(hass.Hass):
     def update_light(self):
         if len(self.do_update) != 2:
             return
+        def update_stored_state():
+            # make sure we have the up-to-date state stored
+            light_name = self.light.split('.')[1] # drop the domain
+            state_entity = self.get_entity(f"sensor.light_state_{light_name}")
+            if str(self.state) != state_entity.get_state():
+                old_state = state_entity.get_state()
+                state_entity.set_state(state=str(self.state), attributes={'old_state': old_state})
         # check each trigger to see if it's enabled.
         # also handle the delay functions
         if self.state == 'manual' or self.state == 'manual_off':
             # don't be automatic in this case
             self.log(f"not updating light b/c it's in manual mode")
+            update_stored_state()
             return
         for trigger in self.triggers:
             if trigger['state'] == 'on':
@@ -246,9 +255,10 @@ class LightController(hass.Hass):
                     self.log(f"Matched {self.light} trigger {trigger}, turning off")
                 else:
                     self.log(f"Matched {self.light} trigger {trigger}, but the target_state wasn't understood")
+                update_stored_state()
                 return
         self.state = 'off'
         # no triggers were active, so either we're off or we're faking
         self.get_entity(self.light).turn_off(transition=self.off_transition)
         self.log(f"no triggers active for {self.light}, turning off")
-
+        update_stored_state()
