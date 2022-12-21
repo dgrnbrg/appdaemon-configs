@@ -1,11 +1,31 @@
-import datetime
 import math
+import pytz
 import numpy as np
 import pandas as pd
 import hassapi as hass
+import adbase as ad
 import datetime
 import influx
 
+
+def parse_conditional_expr(cause):
+    """
+    Copied from lights.py
+    """
+    present_state = 'on'
+    absent_state = 'off'
+    entity = cause
+    if '==' in cause:
+        xs = [x.strip() for x in cause.split('==')]
+        entity = xs[0]
+        present_state = xs[1]
+        absent_state = None
+    elif '!=' in cause:
+        xs = [x.trim() for x in cause.split('!=')]
+        entity = xs[0]
+        present_state = None
+        absent_state = xs[1]
+    return present_state, absent_state, entity
 
 def get_sensor_data(entity_id, column, start='-7d'):
     id_parts = entity_id.split('.')
@@ -400,3 +420,100 @@ class ClimateImplementor(hass.Hass):
         mode_impl_entity.set_state(state=goal_mode)
         temp_impl_entity.set_state(state=target_temp)
         #self.call_service('climate/set_temperature', entity_id = self.climate_ent, temperature = target_temp, hvac_mode = goal_mode[:4])
+
+class BasicThermostatController(hass.Hass):
+    @ad.app_lock
+    def initialize(self):
+        self.thermostat = self.args["climate_entity"]
+        runtime = datetime.time(0, 0, 0)
+        self.listen_event(self.wind_down_event, "ios.action_fired", actionName="wind_down")
+        self.listen_event(self.morning_alarm_event, "ios.action_fired", actionName="morning_alarm")
+        self.run_daily(self.determine_if_warm_or_cool_day, '04:00:00')
+        self.presence = [parse_conditional_expr(x) for x in self.args['presence']]
+        self.people = {ent: 'unknown' for (_,_,ent) in self.presence}
+        self.presence_state = 'home'
+        if len(self.people) != len(self.presence):
+            raise ValueError(f'Each tracked entity can only appear once: {self.presence}')
+        for present_state, absent_state, entity in self.presence:
+            if present_state:
+                self.listen_state(self.did_arrive, entity, new=present_state, immediate=True)
+            else:
+                self.listen_state(self.did_arrive, entity, absent_state=absent_state, immediate=True)
+            if absent_state:
+                self.listen_state(self.did_leave, entity, new=absent_state, immediate=True)
+            else:
+                self.listen_state(self.did_leave, entity, present_state=present_state, immediate=True)
+        self.determine_if_warm_or_cool_day({})
+
+    @ad.app_lock
+    def did_arrive(self, entity, attr, old, new, kwargs):
+        if 'absent_state' in kwargs:
+            if new == kwargs['absent_state']:
+                return
+        self.people[entity] = 'home'
+        self.update_temp_by_presence()
+
+    @ad.app_lock
+    def did_leave(self, entity, attr, old, new, kwargs):
+        if 'present_state' in kwargs:
+            if new == kwargs['present_state']:
+                return
+        self.people[entity] = 'away'
+        self.update_temp_by_presence()
+
+    def update_temp_by_presence(self):
+        if len(self.people) == len([k for k,v in self.people.items() if v != 'unknown']):
+            return # don't do things before we know where people are
+        any_home = False
+        for ent, status in self.people.items():
+            if status == 'home':
+                any_home = True
+        report_ent = self.get_entity('sensor.basic_thermostat_controller')
+        if self.presence_state != 'home' and any_home:
+            self.presence_state = 'home'
+            target_temp = self.today_conf['saved_temperature'] if 'saved_temperature' in self.today_conf else self.today_conf['target_temp']
+            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
+            self.log(f"Updated temp since we're home")
+            report_ent.set_state(state='home', attributes=today_conf)
+        if self.presence_state == 'home' and not any_home:
+            self.presence_state = 'away'
+            self.today_conf['saved_temperature'] = self.get_state(self.thermostat, attribute = 'temperature')
+            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['away'])
+            self.log(f"Updated temp since we're away")
+            report_ent.set_state(state='away', attributes=today_conf)
+
+    @ad.app_lock
+    def determine_if_warm_or_cool_day(self, kwargs):
+        # get temp at noon
+        forecasts = self.get_state("weather.home_hourly", attribute="forecast")
+        noonish_forecast = forecasts[0]
+        target_time = datetime.datetime.combine(datetime.date.today(), datetime.time(12,0), pytz.timezone('US/Eastern'))
+        for hourly in forecasts:
+            sample_time = datetime.datetime.fromisoformat(hourly['datetime'])
+            #print(f"Comparing {sample_time} to {target_time}")
+            if sample_time >= target_time:
+                noonish_forecast = hourly
+                break
+        noonish_temp = float(noonish_forecast['temperature'])
+        #print(f"looking at {self.thermostat} {self.get_state(self.thermostat)}")
+        self.today_conf = self.args[self.get_state(self.thermostat)].copy()
+        #print(f"today_conf = {self.today_conf}")
+        if noonish_temp >= self.today_conf['outside_splitpoint']:
+            target_temp = self.today_conf['warm_day']
+            self.log(f"Treating today as a warm day")
+        else:
+            target_temp = self.today_conf['cool_day']
+            self.log(f"Treating today as a cool day")
+        self.today_conf['target_temp'] = target_temp
+        report_ent = self.get_entity('sensor.basic_thermostat_controller')
+        report_ent.set_state(state=self.presence_state, attributes=self.today_conf)
+
+    @ad.app_lock
+    def wind_down_event(self, event_name, data, kwargs):
+        if self.today_conf:
+            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['sleep'])
+
+    @ad.app_lock
+    def morning_alarm_event(self, event_name, data, kwargs):
+        if self.today_conf:
+            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['target_temp'])
