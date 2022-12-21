@@ -81,7 +81,7 @@ class LightController(hass.Hass):
             if not isinstance(any_causes, list):
                 any_causes = [any_causes]
             trigger['any_causes'] = any_causes
-            self.log(f"on {self.light}, looking at {any_causes}")
+            #self.log(f"on {self.light}, looking at {any_causes}")
             all_causes = t.get('condition', [])
             if not isinstance(all_causes, list):
                 all_causes = [all_causes]
@@ -138,7 +138,7 @@ class LightController(hass.Hass):
                 all_presence_off = False
             if v == 'off' and t in trigger['condition_entities']:
                 any_condition_off = True
-        self.log(f'trigger off for {self.light} because {entity} is off. all presence off={all_presence_off}. all condition off={any_condition_off}. prev={old_state}. states = {trigger["states"]}')
+        #self.log(f'trigger off for {self.light} because {entity} is off. all presence off={all_presence_off}. all condition off={any_condition_off}. prev={old_state}. states = {trigger["states"]}')
         if all_presence_off or any_condition_off:
             trigger['state'] = 'off'
             if old_state != 'off':
@@ -149,7 +149,7 @@ class LightController(hass.Hass):
         if 'absent_state' in kwargs: # this may be a false trigger if using a state comparison
             if new == kwargs['absent_state']:
                 return
-        self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
+        #self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
         trigger = self.triggers[kwargs['trigger']]
         old_state = trigger['state']
         trigger['states'][entity] = 'on'
@@ -162,7 +162,7 @@ class LightController(hass.Hass):
                 all_conditions_on = False
         if all_conditions_on and any_presence_on:
             trigger['state'] = 'on'
-            self.log(f'trigger on for {self.light} because {entity} went on. any presence on={any_presence_on}. all conditions on={all_conditions_on}. prev={old_state}')
+            #self.log(f'trigger on for {self.light} because {entity} went on. any presence on={any_presence_on}. all conditions on={all_conditions_on}. prev={old_state}')
             if old_state != 'on':
                 self.update_light()
 
@@ -209,40 +209,40 @@ class LightController(hass.Hass):
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
-                    self.log(f'saw a change in brightness. delta is {delta}. state is now {self.state}')
+                    #self.log(f'saw a change in brightness. delta is {delta}. state is now {self.state}')
                 elif 'color_temp' in service_data:
                     new_color_temp = service_data['color_temp']
                     delta = abs(new_color_temp - self.color_temp) / new_color_temp
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
-                    self.log(f'saw a change in color temp. delta is {delta}. state is now {self.state}')
+                    #self.log(f'saw a change in color temp. delta is {delta}. state is now {self.state}')
                 elif 'color_temp_kelvin' in service_data:
                     new_color_temp = service_data['color_temp_kelvin']
                     delta = abs(new_color_temp - self.color_temp) / new_color_temp
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
-                    self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
+                    #self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
                 else:
-                    self.log(f"saw {self.light} turn on without settings.")
+                    #self.log(f"saw {self.light} turn on without settings.")
                     if self.state == 'manual_off':
-                        self.log(f"from on: Returning to automatic {service_data}.")
+                        #self.log(f"from on: Returning to automatic {service_data}.")
                         self.state = 'returning'
                     elif self.state == 'off' or isinstance(self.state, int) and self.triggers[self.state]['target_state'] == 'turned_off': # it turned on but it should be off
-                        self.log(f"saw an unexpected change to on, going to manual")
+                        #self.log(f"saw an unexpected change to on, going to manual")
                         self.state = 'manual'
                         self.update_light()
             # check if we did a turn off, and 
             elif data['service'] == 'turn_off' :
-                self.log(f"saw {self.light} turn off without settings (cur state = {self.state}).")
+                #self.log(f"saw {self.light} turn off without settings (cur state = {self.state}).")
                 # if the state isn't off or a trigger that is supposed to be turned off
                 if self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
-                    self.log(f"saw an unexpected change to off, going to manual")
+                    #self.log(f"saw an unexpected change to off, going to manual")
                     self.state = 'manual_off'
                     self.update_light()
                 elif self.state == 'manual': # does turning off mean we return to auto?
-                    self.log(f"from off: Returning to automatic {service_data}.")
+                    #self.log(f"from off: Returning to automatic {service_data}.")
                     self.state = 'returning'
                     self.update_light()
 
@@ -270,11 +270,11 @@ class LightController(hass.Hass):
                 brightness = min(self.brightness, trigger['max_brightness'])
                 self.target_brightness = brightness
                 if trigger['target_state'] == 'turned_on':
-                    self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness}")
+                    #self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness}")
                     self.get_entity(self.light).turn_on(brightness_pct=brightness, color_temp=self.color_temp, transition=trigger['transition'])
                 elif trigger['target_state'] == 'turned_off':
                     self.get_entity(self.light).turn_off(transition=trigger['transition'])
-                    self.log(f"Matched {self.light} trigger {trigger}, turning off")
+                    #self.log(f"Matched {self.light} trigger {trigger}, turning off")
                 else:
                     self.log(f"Matched {self.light} trigger {trigger}, but the target_state wasn't understood")
                 update_stored_state()
@@ -282,6 +282,6 @@ class LightController(hass.Hass):
         self.state = 'off'
         # no triggers were active, so either we're off or we're faking
         self.get_entity(self.light).turn_off(transition=self.off_transition)
-        self.log(f"no triggers active for {self.light}, turning off")
+        #self.log(f"no triggers active for {self.light}, turning off")
         update_stored_state()
 
