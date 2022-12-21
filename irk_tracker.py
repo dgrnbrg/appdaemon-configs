@@ -162,22 +162,23 @@ class IrkTracker(hass.Hass):
                             means[source] /= len(obs)
                             num_detected += 1
                         else:
-                            self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
+                            #self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
                             means[source] = -100.0
                 device_entity = self.get_entity(f"sensor.ble_tracker_{name.replace(' ', '_')}")
                 if num_detected != 0:
                     if num_detected != len(means):
-                        self.log(f"only detected {num_detected} stations ({[x for x,v in means.items() if v != -100.0]})")
+                        #self.log(f"only detected {num_detected} stations ({[x for x,v in means.items() if v != -100.0]})")
+                        pass
                     input_arg = [means[source] for source in self.knn_columns]
                     room = self.knn.predict([input_arg])[0]
                     svm_room = self.svm(input_arg)
                     m = {k: v for k,v in zip(self.knn_columns, input_arg)}
                     if not room.startswith(svm_room):
-                        self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
+                        #self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
                         device_entity.set_state(state=f"{svm_room} and {room}")
                     else:
                         device_entity.set_state(state=svm_room)
                 else:
                     device_entity.set_state(state='insufficient')
                     vis = {k:v for k,v in means.items()}
-                    self.log(f"Couldn't localize {name}; only obs from {vis}")
+                    #self.log(f"Couldn't localize {name}; only obs from {vis}")
