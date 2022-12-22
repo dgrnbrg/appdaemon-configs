@@ -447,6 +447,7 @@ class BasicThermostatController(hass.Hass):
 
     @ad.app_lock
     def did_arrive(self, entity, attr, old, new, kwargs):
+        #self.log(f"did arrive {entity} {attr} {old} {new} {kwargs}")
         if 'absent_state' in kwargs:
             if new == kwargs['absent_state']:
                 return
@@ -455,6 +456,7 @@ class BasicThermostatController(hass.Hass):
 
     @ad.app_lock
     def did_leave(self, entity, attr, old, new, kwargs):
+        #self.log(f"did leave {entity} {attr} {old} {new} {kwargs}")
         if 'present_state' in kwargs:
             if new == kwargs['present_state']:
                 return
@@ -462,25 +464,28 @@ class BasicThermostatController(hass.Hass):
         self.update_temp_by_presence()
 
     def update_temp_by_presence(self):
-        if len(self.people) == len([k for k,v in self.people.items() if v != 'unknown']):
+        #self.log(f"people = {self.people}")
+        if len(self.people) != len([k for k,v in self.people.items() if v != 'unknown']):
+            #self.log("bailing early")
             return # don't do things before we know where people are
         any_home = False
         for ent, status in self.people.items():
             if status == 'home':
                 any_home = True
         report_ent = self.get_entity('sensor.basic_thermostat_controller')
+        #self.log(f"updating {self.presence_state} {any_home} {self.people}")
         if self.presence_state != 'home' and any_home:
             self.presence_state = 'home'
             target_temp = self.today_conf['saved_temperature'] if 'saved_temperature' in self.today_conf else self.today_conf['target_temp']
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
-            self.log(f"Updated temp since we're home")
-            report_ent.set_state(state='home', attributes=today_conf)
+            self.log(f"Updated temp since we're home to {target_temp}")
+            report_ent.set_state(state='home', attributes=self.today_conf)
         if self.presence_state == 'home' and not any_home:
             self.presence_state = 'away'
             self.today_conf['saved_temperature'] = self.get_state(self.thermostat, attribute = 'temperature')
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['away'])
-            self.log(f"Updated temp since we're away")
-            report_ent.set_state(state='away', attributes=today_conf)
+            self.log(f"Updated temp since we're away to {self.today_conf['away']} and saved return temp as {self.today_conf['saved_temperature']}")
+            report_ent.set_state(state='away', attributes=self.today_conf)
 
     @ad.app_lock
     def determine_if_warm_or_cool_day(self, kwargs):
