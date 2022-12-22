@@ -260,7 +260,7 @@ class LightController(hass.Hass):
         # also handle the delay functions
         if self.state == 'manual' or self.state == 'manual_off':
             # don't be automatic in this case
-            self.log(f"not updating light b/c it's in manual mode")
+            #self.log(f"not updating light b/c it's in manual mode")
             update_stored_state()
             return
         for trigger in self.triggers:
