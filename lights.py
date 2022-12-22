@@ -119,7 +119,7 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def reset_manual(self, kwargs):
-        if self.state == 'manual' or self.state == 'manual_on':
+        if self.state == 'manual' or self.state == 'manual_off':
             self.state = 'returning'
             self.update_light()
 
