@@ -425,6 +425,7 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def initialize(self):
         self.thermostat = self.args["climate_entity"]
+        self.max_diff_for_heat_pump = self.args["max_diff_for_heat_pump"]
         runtime = datetime.time(0, 0, 0)
         self.listen_event(self.wind_down_event, "ios.action_fired", actionName="wind_down")
         self.listen_event(self.morning_alarm_event, "ios.action_fired", actionName="morning_alarm")
@@ -447,19 +448,19 @@ class BasicThermostatController(hass.Hass):
 
     @ad.app_lock
     def did_arrive(self, entity, attr, old, new, kwargs):
-        #self.log(f"did arrive {entity} {attr} {old} {new} {kwargs}")
         if 'absent_state' in kwargs:
             if new == kwargs['absent_state']:
                 return
+        self.log(f"did arrive {entity} {attr} {old} {new} {kwargs}")
         self.people[entity] = 'home'
         self.update_temp_by_presence()
 
     @ad.app_lock
     def did_leave(self, entity, attr, old, new, kwargs):
-        #self.log(f"did leave {entity} {attr} {old} {new} {kwargs}")
         if 'present_state' in kwargs:
             if new == kwargs['present_state']:
                 return
+        self.log(f"did leave {entity} {attr} {old} {new} {kwargs}")
         self.people[entity] = 'away'
         self.update_temp_by_presence()
 
@@ -473,19 +474,51 @@ class BasicThermostatController(hass.Hass):
             if status == 'home':
                 any_home = True
         report_ent = self.get_entity('sensor.basic_thermostat_controller')
-        #self.log(f"updating {self.presence_state} {any_home} {self.people}")
+        self.log(f"updating {self.presence_state} {any_home} {self.people}")
+        thermostat_state =  self.get_state(self.thermostat, attribute='all')
         if self.presence_state != 'home' and any_home:
+            self.cancel_climb_heat_mode("presence change to home")
             self.presence_state = 'home'
             target_temp = self.today_conf['saved_temperature'] if 'saved_temperature' in self.today_conf else self.today_conf['target_temp']
-            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
-            self.log(f"Updated temp since we're home to {target_temp}")
+            # if we are heating and the current temp is more than 4 degrees below the target, we must ramp to avoid using emheat mode
+            current_temperature = thermostat_state['state']['current_temperature']
+            if thermostat_state['state'] == 'heat' and current_temperature + self.max_diff_for_heat_pump < target_temp:
+                # we are going to go into the climbing mode
+                self.climb_target = target_temp
+                first_temp = current_temperature + self.max_diff_for_heat_pump
+                self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = first_temp)
+                self.climb_target_handle = self.listen_state(self.climb_heat_callback, self.thermostat, attribute='current_temperature')
+                self.log(f"Climbing heat up to {target_temp}, initially setting to {first_temp}")
+            else:
+                self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
+                self.log(f"Updated temp since we're home to {target_temp}")
             report_ent.set_state(state='home', attributes=self.today_conf)
         if self.presence_state == 'home' and not any_home:
+            self.cancel_climb_heat_mode("presence change to away")
             self.presence_state = 'away'
-            self.today_conf['saved_temperature'] = self.get_state(self.thermostat, attribute = 'temperature')
+            self.today_conf['saved_temperature'] = thermostat_state['attributes']['temperature']
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['away'])
             self.log(f"Updated temp since we're away to {self.today_conf['away']} and saved return temp as {self.today_conf['saved_temperature']}")
             report_ent.set_state(state='away', attributes=self.today_conf)
+
+    def cancel_climb_heat_mode(self, reason=None):
+        if hasattr(self, 'climb_target_handle'):
+            if reason:
+                self.log(f"canceling climb mode: {reason}")
+            self.cancel_listen_state(self.climb_target_handle)
+            del self.climb_target
+            del self.climb_target_handle
+
+
+    @ad.app_lock
+    def climb_heat_callback(self, entity, attr, old, new, kwargs):
+        next_target = min(self.climb_target, new + self.max_diff_for_heat_pump)
+        self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = next_target)
+        if next_target >= self.climb_target:
+            self.cancel_climb_heat_mode()
+            self.log(f"Finished climbing heat up to {target_temp}, since we reached {new}")
+        else:
+            self.log(f"Climbing heat up to {target_temp}, since we reached {new} we're bumping to {next_target}")
 
     @ad.app_lock
     def determine_if_warm_or_cool_day(self, kwargs):
@@ -516,9 +549,11 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def wind_down_event(self, event_name, data, kwargs):
         if self.today_conf:
+            self.cancel_climb_heat_mode("presence change to sleep")
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['sleep'])
 
     @ad.app_lock
     def morning_alarm_event(self, event_name, data, kwargs):
         if self.today_conf:
+            self.cancel_climb_heat_mode("presence change to morning alarm")
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['target_temp'])

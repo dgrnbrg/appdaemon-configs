@@ -305,6 +305,7 @@ basic_thermostat:
   class: BasicThermostatController
   module: temperature
   climate_entity: climate.thermostat_2
+  max_diff_for_heat_pump: 4
   heat:
     outside_splitpoint: 62
     warm_day: 70
@@ -320,3 +321,4 @@ basic_thermostat:
   presence:
     - device_tracker.david_iphone == home
     - device_tracker.aysylu_iphone == home
+    #- input_boolean.test_helper
