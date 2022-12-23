@@ -50,6 +50,8 @@ class LightController(hass.Hass):
     @ad.app_lock
     def initialize(self):
         self.light = self.args['light']
+        self.light_name = self.light.split('.')[1] # drop the domain
+        self.reautomate_button = f'button.reautomate_{self.light_name}'
         self.do_update = set()
         self.target_brightness = 0
         self.off_transition = self.args.get('off_transition', 5)
@@ -116,6 +118,7 @@ class LightController(hass.Hass):
         self.listen_event(self.service_snoop, "call_service")
         self.run_daily(self.reset_manual, self.daily_off_time)
         self.log(f"Completed initialization for {self.light}")
+        self.get_entity(self.reautomate_button).set_state(state='unknown', attributes={'friendly_name': f'Reautomate {self.light}'})
 
     @ad.app_lock
     def reset_manual(self, kwargs):
@@ -180,7 +183,7 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def service_snoop(self, event_name, data, kwargs):
-        if data['domain'] != 'light':
+        if data['domain'] != 'light' and data['domain'] != 'button':
             return
         #print(f"service snooped {data}")
         service_data = data['service_data']
@@ -191,9 +194,14 @@ class LightController(hass.Hass):
                 has = self.light in entity_id
             else:
                 has = self.light == entity_id
+        if data['domain'] == 'button' and data['service'] == 'press' and (entity_id == self.reautomate_button or entity_id == [self.reautomate_button]):
+            self.state = 'returning'
+            self.update_light()
+            self.log(f'reautomating {self.light}')
+            return
         if has:
             # janky support for toggle
-            if data['service'] == 'toggle':
+            if data['domain'] == 'light' and data['service'] == 'toggle':
                 cur_state = self.get_state(self.light)
                 print(f"toggle reveals the entity is {cur_state}")
                 if cur_state == 'on':
@@ -202,13 +210,14 @@ class LightController(hass.Hass):
                     data['service'] = 'turn_on'
                 else:
                     self.log(f"Unexpected state for {self.light}: {cur_state}")
-            if data['service'] == 'turn_on':
+            if data['domain'] == 'light' and data['service'] == 'turn_on':
                 if 'brightness_pct' in service_data:
                     new_brightness = service_data['brightness_pct']
                     delta = abs(new_brightness - self.target_brightness) / new_brightness
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
+                        self.update_light()
                     #self.log(f'saw a change in brightness. delta is {delta}. state is now {self.state}')
                 elif 'color_temp' in service_data:
                     new_color_temp = service_data['color_temp']
@@ -216,6 +225,7 @@ class LightController(hass.Hass):
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
+                        self.update_light()
                     #self.log(f'saw a change in color temp. delta is {delta}. state is now {self.state}')
                 elif 'color_temp_kelvin' in service_data:
                     new_color_temp = service_data['color_temp_kelvin']
@@ -223,6 +233,7 @@ class LightController(hass.Hass):
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
+                        self.update_light()
                     #self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
                 else:
                     #self.log(f"saw {self.light} turn on without settings.")
@@ -234,7 +245,7 @@ class LightController(hass.Hass):
                         self.state = 'manual'
                         self.update_light()
             # check if we did a turn off, and 
-            elif data['service'] == 'turn_off' :
+            elif data['domain'] == 'light' and data['service'] == 'turn_off' :
                 #self.log(f"saw {self.light} turn off without settings (cur state = {self.state}).")
                 # if the state isn't off or a trigger that is supposed to be turned off
                 if self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
@@ -251,11 +262,13 @@ class LightController(hass.Hass):
             return
         def update_stored_state():
             # make sure we have the up-to-date state stored
-            light_name = self.light.split('.')[1] # drop the domain
-            state_entity = self.get_entity(f"sensor.light_state_{light_name}")
+            state_entity = self.get_entity(f"sensor.light_state_{self.light_name}")
             if str(self.state) != state_entity.get_state():
                 old_state = state_entity.get_state()
-                state_entity.set_state(state=str(self.state), attributes={'old_state': old_state, 'active_triggers': [x['index'] for x in self.triggers if x['state'] == 'on']})
+                state_repr = str(self.state)
+                if state_repr == 'manual_off':
+                    state_repr = 'manual'
+                state_entity.set_state(state=state_repr, attributes={'old_state': old_state, 'active_triggers': [x['index'] for x in self.triggers if x['state'] == 'on'], 'internal_state': self.state})
         # check each trigger to see if it's enabled.
         # also handle the delay functions
         if self.state == 'manual' or self.state == 'manual_off':
