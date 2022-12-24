@@ -60,7 +60,7 @@ class LightController(hass.Hass):
         #print(f"light controller args: {self.args}")
         self.daily_off_time = self.args.get('daily_off_time', '04:00:00')
         self.triggers = []
-        for i, t in enumerate(self.args['triggers']):
+        for i, t in enumerate(self.args.get('triggers',[]) or []):
             if 'presence' in t and 'task' in t:
                 self.error(f"Trigger {t} should have presence or task as the trigger")
             trigger = {'index': i}
