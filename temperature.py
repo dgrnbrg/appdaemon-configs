@@ -481,7 +481,7 @@ class BasicThermostatController(hass.Hass):
             self.presence_state = 'home'
             target_temp = self.today_conf['saved_temperature'] if 'saved_temperature' in self.today_conf else self.today_conf['target_temp']
             # if we are heating and the current temp is more than 4 degrees below the target, we must ramp to avoid using emheat mode
-            current_temperature = thermostat_state['state']['current_temperature']
+            current_temperature = thermostat_state['attributes']['current_temperature']
             if thermostat_state['state'] == 'heat' and current_temperature + self.max_diff_for_heat_pump < target_temp:
                 # we are going to go into the climbing mode
                 self.climb_target = target_temp
