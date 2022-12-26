@@ -244,15 +244,41 @@ david_office_lights:
   class: LightController
   module: lights
   triggers:
-    - task:
-      - input_boolean.dna_sleeping
-      - input_boolean.david_in_bed
-      state: turned_off
-    - presence:
-      - device_tracker.david_iphone == home
+   - task:
+     - input_boolean.dna_sleeping
+     - input_boolean.david_in_bed
+     state: turned_off
+   - presence:
+     - device_tracker.david_iphone == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.david_office
 
+aysylu_office_lights:
+  class: LightController
+  module: lights
+  triggers:
+   - task:
+     - input_boolean.dna_sleeping
+     - input_boolean.aysylu_in_bed
+     state: turned_off
+   - presence:
+     - device_tracker.aysylu_iphone == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.aysylu_office_ceiling
+
+aysylu_office_lamp:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.aysylu_in_bed
+      state: turned_off
+    - presence:
+      - device_tracker.aysylu_iphone == home
+      condition: input_boolean.it_is_evening
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.aysylu_office_lamp
 
 stairs_lights:
   class: LightController
@@ -301,6 +327,29 @@ kitchen_lights:
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.kitchen
 
+downstairs_lights:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      state: turned_off
+    - presence:
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.downstairs
+
+downstairs_geoleaf_light:
+  class: LightController
+  module: lights
+  triggers:
+    - task:
+      - binary_sensor.desktop_kl449rj_power_status
+  adaptive_lighting: switch.adaptive_lighting_default
+  light: light.wled
+
 basic_thermostat:
   class: BasicThermostatController
   module: temperature
@@ -321,4 +370,4 @@ basic_thermostat:
   presence:
     - device_tracker.david_iphone == home
     - device_tracker.aysylu_iphone == home
-    #- input_boolean.test_helper
+      #- input_boolean.test_helper
