@@ -207,20 +207,25 @@ class IrkTracker(hass.Hass):
                 # publish that the person is in in_room
                 person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
                 person_ent.set_state(state=in_room, attributes={'from_device': device})
+        # publish the device-level stat
+        self.device_in_room[device] = in_room
+        device_ent = self.get_entity(f'device_tracker.{device.replace(" ", "_")}_irk')
+        device_ent.set_state(state=in_room, attributes={'weighted_votes': weighted_votes})
+        # finally, only if now every device is unknown
+        self.log(f"checking if every device is unknown for {device_person}: {self.device_in_room}")
         every_device_unknown = True
         for identity, data in self.identities.items():
             if data['person'] != device_person:
                 continue
-            if self.device_in_room[data['device_name']] != 'unknown':
+            x = self.device_in_room[data['device_name']]
+            if x is not None and x != 'unknown':
+                self.log(f"all devices not unknown due to {data}")
                 every_device_unknown = False
                 break
         if every_device_unknown:
             # publish that the person isn't detected
             person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
             person_ent.set_state(state='unknown', attributes={'from_device': 'all'})
-        self.device_in_room[device] = in_room
-        device_ent = self.get_entity(f'device_tracker.{device.replace(" ", "_")}_irk')
-        device_ent.set_state(state=in_room, attributes={'weighted_votes': weighted_votes})
 
     def resolve_room(self, weighted_votes, device):
         rooms = []
@@ -231,7 +236,7 @@ class IrkTracker(hass.Hass):
             elif 'secondary_clarifiers' in alias:
                 if i != 0:
                     _,_,next_source = weighted_votes[i-1]
-                    self.log(f"for {device} resolving inner for {source} at {i}, next is {next_source} at {i-1}")
+                    #self.log(f"for {device} resolving inner for {source} at {i}, next is {next_source} at {i-1}")
                     next_room = resolve_inner(next_source, i+1)
                     if next_room in alias['secondary_clarifiers']:
                         return next_room
@@ -239,9 +244,9 @@ class IrkTracker(hass.Hass):
                         return None
                 if len(weighted_votes) >= 2: # i == 0
                     _,_,next_source = weighted_votes[1]
-                    self.log(f"for {device} resolving inner for {source} at 0, next is {next_source} at 1")
+                    #self.log(f"for {device} resolving inner for {source} at 0, next is {next_source} at 1")
                     next_room = resolve_inner(next_source, 1)
-                    self.log(f"  next room = {next_room}")
+                    #self.log(f"  next room = {next_room}")
                     if next_room in alias['secondary_clarifiers']:
                         return next_room
                     else:
