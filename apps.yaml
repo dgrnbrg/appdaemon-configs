@@ -138,6 +138,40 @@ tracker_test:
   training_input_text: input_text.irk_tag
   data_loc: tracker_logs/
   rows_per_flush: 100
+  identities:
+    - device_name: 'david phone'
+      irk: 0C9582B2C7D3BE4B8BE2E2C33FFEFA8F
+      person: david
+    - device_name: 'david watch'
+      irk: 57d899b39a9bca384e89ab741b56d3bd
+      person: david
+    - device_name: 'aysylu phone'
+      irk: 678DDF7B3BDB195106A67E5BC12E556F
+      person: aysylu
+    - device_name: 'aysylu watch'
+      irk: 0033354fb61c4f44f2389c68298802e4
+      person: aysylu
+  away_trackers:
+    - person: david
+      tracker: device_tracker.david_iphone
+    - person: aysylu
+      tracker: device_tracker.aysylu_iphone
+  rssi_adjustments:
+    bedroom_blinds: 15
+    living_room_blinds: 15
+  tracking_window_minutes: 3
+  tracking_min_superplurality: 1.2
+  ping_halflife_seconds: 60
+  room_aliases:
+    basement_beacon: downstairs
+    ep1-david-office: david-office
+    living_room_blinds: main-floor
+    garage_assistant:
+      secondary_clarifiers:
+        - downstairs
+        - main-floor
+    ep1-main-floor: main-floor
+    bedroom_blinds: bedroom
 
   #example_light:
   #  class: foo
@@ -185,8 +219,8 @@ living_room_lights:
       transition: 8
     - presence:
       - binary_sensor.main_floor_occupancy
-      #- device_tracker.david_iphone == home
-      #- device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.living_room
 
@@ -199,9 +233,9 @@ curio_light:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - binary_sensor.main_floor_occupancy
-      #- device_tracker.david_iphone == home
-      #- device_tracker.aysylu_iphone == home
+      #- binary_sensor.main_floor_occupancy
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
       condition: input_boolean.it_is_evening
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.curio_lights
@@ -218,9 +252,8 @@ dining_room_accent_light:
       state: turned_off
       transition: 8
     - presence:
-      - binary_sensor.main_floor_occupancy
-      #- device_tracker.david_iphone == home
-      #- device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
       condition: input_boolean.it_is_evening
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.triangle_lamp
@@ -239,8 +272,8 @@ dining_room_lights:
       transition: 8
     - presence:
       - binary_sensor.main_floor_occupancy
-      #- device_tracker.david_iphone == home
-      #- device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.dining_table_fan_fixture
 
@@ -253,7 +286,7 @@ david_office_lights:
      - input_boolean.david_in_bed
      state: turned_off
    - presence:
-     - device_tracker.david_iphone == home
+     - binary_sensor.david_office_occupancy
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.david_office
 
@@ -327,8 +360,8 @@ kitchen_lights:
       state: turned_off
     - presence:
       - binary_sensor.main_floor_occupancy
-      #- device_tracker.david_iphone == home
-      #- device_tracker.aysylu_iphone == home
+      - device_tracker.david_iphone == home
+      - device_tracker.aysylu_iphone == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.kitchen
 
@@ -351,7 +384,7 @@ downstairs_geoleaf_light:
   module: lights
   triggers:
     - task:
-      - binary_sensor.desktop_kl449rj_power_status
+      - binary_sensor.desktop_kl479rj_power_status != unavailable
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.wled
 

@@ -1,4 +1,5 @@
 import hassapi as hass
+from collections import defaultdict
 import pandas as pd
 from Crypto.Cipher import AES
 import dateutil.parser as du
@@ -11,21 +12,32 @@ from collections import defaultdict
 import numpy as np
 
 
-identities = {
-        'david phone': b'\x0C\x95\x82\xB2\xC7\xD3\xBE\x4B\x8B\xE2\xE2\xC3\x3F\xFE\xFA\x8F',
-        'david watch': b'\x57\xd8\x99\xb3\x9a\x9b\xca\x38\x4e\x89\xab\x74\x1b\x56\xd3\xbd',
-        'aysylu phone': b'\x67\x8D\xDF\x7B\x3B\xDB\x19\x51\x06\xA6\x7E\x5B\xC1\x2E\x55\x6F',
-        'aysylu watch': b'\x00\x33\x35\x4f\xb6\x1c\x4f\x44\xf2\x38\x9c\x68\x29\x88\x02\xe4'
-}
-
-ciphers = {k: AES.new(v, AES.MODE_ECB) for k,v in identities.items()}
-
 tracker_log_loc = '/config/appdaemon/tracker_logs/'
 tracker_log_rows_per_flush = 100
 
 
 class IrkTracker(hass.Hass):
     def initialize(self):
+        self.room_aliases = self.args.get('room_aliases', {})
+        self.valid_rooms = set()
+        self.device_in_room = defaultdict(lambda: 'unknown')
+        self.expiry_timers = {}
+        self.tracking_window = timedelta(minutes=int(self.args.get('tracking_window_minutes', 3)))
+        self.min_superplurality = self.args.get('tracking_min_superplurality',1.0)
+        self.rssi_adjustments = self.args.get('rssi_adjustments',{})
+        self.ping_halflife_seconds = self.args.get('ping_halflife_seconds', 60)
+        self.log(f'rssi_adjustments = {self.rssi_adjustments}')
+        for room in self.room_aliases.values():
+            if isinstance(room, str):
+                self.valid_rooms.add(room)
+            # TODO include rooms from other alias types
+        self.identities = {x['device_name']: x for x in self.args['identities']}
+        self.ciphers = {}
+        for identity, data in self.identities.items():
+            self.ciphers[identity] = AES.new(bytearray.fromhex(data['irk']), AES.MODE_ECB)
+            device_ent = self.get_entity(f'device_tracker.{identity.replace(" ", "_")}_irk')
+            if device_ent.exists():
+                self.device_in_room[identity] = device_ent.get_state(attribute='room')
         if 'data_loc' in self.args:
             self.data_loc = f"/config/appdaemon/{self.args['data_loc']}"
         else:
@@ -119,16 +131,16 @@ class IrkTracker(hass.Hass):
     def ble_tracker_cb(self, event_name, data, kwargs):
         #self.log(f'event: {event_name} : {data}')
         addr = bytes.fromhex(data['addr'].replace(":",""))
-        time = du.parse(data['metadata']['time_fired'])
+        #time = du.parse(data['metadata']['time_fired'])
+        # TODO this should actually do the parsing above with the timezone awareness
+        time = datetime.now()
         source = data['source']
-        if source in ['basement_pi']:
-            return
-        rssi = data['rssi']
+        rssi = int(data['rssi'])
         pt = bytearray(b'\0' * 16)
         pt[15] = addr[2]
         pt[14] = addr[1]
         pt[13] = addr[0]
-        for name, cipher in ciphers.items():
+        for name, cipher in self.ciphers.items():
             msg = cipher.encrypt(bytes(pt))
             if msg[15] == addr[5] and msg[14] == addr[4] and msg[13] == addr[3]:
                 if self.recording_df is not None:
@@ -140,12 +152,120 @@ class IrkTracker(hass.Hass):
                         self.flush_recording()
                 # handle publishing update for appropriate entity
                 obs = self.recent_observations[(source,name)]
-                obs.append((time, rssi))
-                self.prune_old_obs(obs)
+                #if source in self.rssi_adjustments:
+                #    self.log(f"Adjusting rssi for {source} from {rssi} to {rssi + self.rssi_adjustments.get(source,0)}")
+                obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
+                self.tracking_resolve(name)
+                if name in self.expiry_timers:
+                    self.cancel_timer(self.expiry_timers[name])
+                self.expiry_timers[name] = self.run_in(self.device_expiry, delay=self.tracking_window.total_seconds(), expiring_device = name)
                 #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
 
+    def device_expiry(self, kwargs):
+        device = kwargs['expiring_device']
+        self.tracking_resolve(device)
+
+    def tracking_resolve(self, device):
+        room_votes = defaultdict(lambda: [])
+        total_votes = 0
+        for (source, d), obs in self.recent_observations.items():
+            if device != d:
+                # not resolving this device atm
+                continue
+            self.prune_old_obs(obs)
+            if source not in self.room_aliases:
+                # tracker doesn't belong to a room
+                continue
+            room = source#self.room_aliases[source]
+            room_votes[room].extend(obs)
+            total_votes += len(obs)
+        weighted_votes = []
+        if total_votes < 3:
+            # not enough info
+            in_room = 'unknown'
+        else:
+            now = datetime.now()
+            for room, obs in room_votes.items():
+                if len(obs) == 0:
+                    continue # nothing to do
+                count = numerator = denominator = 0
+                for time, rssi in obs:
+                    #weight = 1.0
+                    weight = 0.5**((now-time).total_seconds()/self.ping_halflife_seconds)
+                    numerator += -rssi * weight
+                    denominator += weight
+                    count += 1
+                orig_source = room
+                # at this point, resolve to a room
+                weighted_votes.append((numerator / denominator, count, orig_source))
+            weighted_votes.sort(key=lambda x: x[0], reverse=False)
+            in_room = self.resolve_room(weighted_votes, device)
+        device_person = self.identities[device]['person']
+        if device in self.device_in_room and in_room != 'unknown':
+            old_room = self.device_in_room[device]
+            if old_room != in_room:
+                # publish that the person is in in_room
+                person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
+                person_ent.set_state(state=in_room, attributes={'from_device': device})
+        every_device_unknown = True
+        for identity, data in self.identities.items():
+            if data['person'] != device_person:
+                continue
+            if self.device_in_room[data['device_name']] != 'unknown':
+                every_device_unknown = False
+                break
+        if every_device_unknown:
+            # publish that the person isn't detected
+            person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
+            person_ent.set_state(state='unknown', attributes={'from_device': 'all'})
+        self.device_in_room[device] = in_room
+        device_ent = self.get_entity(f'device_tracker.{device.replace(" ", "_")}_irk')
+        device_ent.set_state(state=in_room, attributes={'weighted_votes': weighted_votes})
+
+    def resolve_room(self, weighted_votes, device):
+        rooms = []
+        def resolve_inner(source, i):
+            alias = self.room_aliases[source]
+            if isinstance(alias, str): # direct mapping
+                return alias
+            elif 'secondary_clarifiers' in alias:
+                if i != 0:
+                    _,_,next_source = weighted_votes[i-1]
+                    self.log(f"for {device} resolving inner for {source} at {i}, next is {next_source} at {i-1}")
+                    next_room = resolve_inner(next_source, i+1)
+                    if next_room in alias['secondary_clarifiers']:
+                        return next_room
+                    else:
+                        return None
+                if len(weighted_votes) >= 2: # i == 0
+                    _,_,next_source = weighted_votes[1]
+                    self.log(f"for {device} resolving inner for {source} at 0, next is {next_source} at 1")
+                    next_room = resolve_inner(next_source, 1)
+                    self.log(f"  next room = {next_room}")
+                    if next_room in alias['secondary_clarifiers']:
+                        return next_room
+                    else:
+                        return None
+                else: # no data for 2ndary classifier b/c it's the last one
+                    return None
+            else:
+                raise ValueError(f'invalid alias config: {alias}')
+        for i, (rssi, count, source) in enumerate(weighted_votes):
+            room = resolve_inner(source, i)
+            rooms.append(room)
+        if len(rooms) == 1:
+            resolved_room = rooms[0]
+        elif len(rooms) >= 2:
+            if weighted_votes[0][0] < weighted_votes[1][0] * self.min_superplurality or rooms[0] == rooms[1]:
+                resolved_room = rooms[0]
+            else: # there was no superplurality
+                resolved_room = 'unknown'
+        if resolved_room is None:
+            resolved_room = 'unknown'
+        return resolved_room
+
     def prune_old_obs(self, obs):
-        while obs and (obs[0][0] + timedelta(minutes=3)).timestamp() < datetime.now().timestamp():
+        while obs and (obs[0][0] + self.tracking_window).timestamp() < datetime.now().timestamp():
             obs.pop(0)
 
     def inference(self, kwargs):
