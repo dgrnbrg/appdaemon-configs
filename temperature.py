@@ -21,7 +21,7 @@ def parse_conditional_expr(cause):
         present_state = xs[1]
         absent_state = None
     elif '!=' in cause:
-        xs = [x.trim() for x in cause.split('!=')]
+        xs = [x.strip() for x in cause.split('!=')]
         entity = xs[0]
         present_state = None
         absent_state = xs[1]

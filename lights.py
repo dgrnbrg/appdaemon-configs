@@ -15,7 +15,7 @@ def parse_conditional_expr(cause):
         present_state = xs[1]
         absent_state = None
     elif '!=' in cause:
-        xs = [x.trim() for x in cause.split('!=')]
+        xs = [x.strip() for x in cause.split('!=')]
         #print(f"parsing a negative state override light trigger")
         entity = xs[0]
         present_state = None
@@ -325,7 +325,7 @@ class LightController(hass.Hass):
                 brightness = min(self.brightness, trigger['max_brightness'])
                 self.target_brightness = brightness
                 if trigger['target_state'] == 'turned_on':
-                    self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness} and temp to {self.color_temp}")
+                    #self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness} and temp to {self.color_temp}")
                     self.get_entity(self.light).turn_on(brightness_pct=brightness, kelvin=self.color_temp, transition=trigger['transition'])
                 elif trigger['target_state'] == 'turned_off':
                     self.get_entity(self.light).turn_off(transition=trigger['transition'])
