@@ -401,6 +401,9 @@ bedroom_near_light:
       - input_boolean.david_in_bed
       - input_boolean.aysylu_in_bed
       state: turned_off
+    - task:
+      - binary_sensor.someone_in_bed
+      max_brightness: 50%
     - presence:
       - device_tracker.david_iphone == home
       - device_tracker.aysylu_iphone == home
@@ -418,9 +421,6 @@ bedroom_far_light:
       - input_boolean.david_in_bed
       - input_boolean.aysylu_in_bed
       max_brightness: 1%
-    - task:
-      - binary_sensor.someone_in_bed
-      max_brightness: 50%
     - presence:
       - device_tracker.david_iphone == home
       - device_tracker.aysylu_iphone == home
