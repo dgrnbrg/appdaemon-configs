@@ -172,6 +172,7 @@ tracker_test:
         - main-floor
     ep1-main-floor: main-floor
     bedroom_blinds: bedroom
+    ep1-bedroom: bedroom
     underbed:
       secondary_clarifiers:
         - main-floor
@@ -405,8 +406,7 @@ bedroom_near_light:
       - binary_sensor.someone_in_bed
       max_brightness: 50%
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
+      - binary_sensor.bedroom_occupancy
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_near
 
@@ -422,8 +422,7 @@ bedroom_far_light:
       - input_boolean.aysylu_in_bed
       max_brightness: 1%
     - presence:
-      - device_tracker.david_iphone == home
-      - device_tracker.aysylu_iphone == home
+      - binary_sensor.bedroom_occupancy
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_near
 
