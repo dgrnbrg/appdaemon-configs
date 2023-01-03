@@ -424,7 +424,7 @@ bedroom_far_light:
     - presence:
       - binary_sensor.bedroom_occupancy
   adaptive_lighting: switch.adaptive_lighting_default
-  light: light.bedroom_near
+  light: light.bedroom_far
 
 basic_thermostat:
   class: BasicThermostatController
