@@ -21,6 +21,7 @@ class IrkTracker(hass.Hass):
         self.room_aliases = self.args.get('room_aliases', {})
         self.valid_rooms = set()
         self.device_in_room = defaultdict(lambda: 'unknown')
+        self.active_device_by_person = defaultdict(lambda: 'unknown')
         self.expiry_timers = {}
         self.tracking_window = timedelta(minutes=int(self.args.get('tracking_window_minutes', 3)))
         self.min_superplurality = self.args.get('tracking_min_superplurality',1.0)
@@ -207,25 +208,33 @@ class IrkTracker(hass.Hass):
                 # publish that the person is in in_room
                 person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
                 person_ent.set_state(state=in_room, attributes={'from_device': device})
+                # mark that this is the "active" device for that person
+                self.active_device_by_person[device_person] = device
         # publish the device-level stat
         self.device_in_room[device] = in_room
         device_ent = self.get_entity(f'device_tracker.{device.replace(" ", "_")}_irk')
         device_ent.set_state(state=in_room, attributes={'weighted_votes': weighted_votes})
         # finally, only if now every device is unknown
-        self.log(f"checking if every device is unknown for {device_person}: {self.device_in_room}")
-        every_device_unknown = True
-        for identity, data in self.identities.items():
-            if data['person'] != device_person:
-                continue
-            x = self.device_in_room[data['device_name']]
-            if x is not None and x != 'unknown':
-                self.log(f"all devices not unknown due to {data}")
-                every_device_unknown = False
-                break
-        if every_device_unknown:
+        active_device = self.active_device_by_person[device_person]
+        active_device_unknown = self.device_in_room[active_device] == 'unknown'
+        if active_device_unknown:
             # publish that the person isn't detected
             person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
-            person_ent.set_state(state='unknown', attributes={'from_device': 'all'})
+            person_ent.set_state(state='unknown', attributes={'from_device': f'{active_device} unknown'})
+        #self.log(f"checking if every device is unknown for {device_person}: {self.device_in_room}")
+        #every_device_unknown = True
+        #for identity, data in self.identities.items():
+        #    if data['person'] != device_person:
+        #        continue
+        #    x = self.device_in_room[data['device_name']]
+        #    if x is not None and x != 'unknown':
+        #        self.log(f"all devices not unknown due to {data}")
+        #        every_device_unknown = False
+        #        break
+        #if every_device_unknown:
+        #    # publish that the person isn't detected
+        #    person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
+        #    person_ent.set_state(state='unknown', attributes={'from_device': 'all'})
 
     def resolve_room(self, weighted_votes, device):
         rooms = []
