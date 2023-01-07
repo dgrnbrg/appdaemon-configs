@@ -398,10 +398,10 @@ bedroom_near_light:
   class: LightController
   module: lights
   triggers:
-      - task:
-        - input_boolean.dna_sleeping
-        - input_boolean.david_in_bed
-        - input_boolean.aysylu_in_bed
+    - task:
+      - input_boolean.dna_sleeping
+      - input_boolean.david_in_bed
+      - input_boolean.aysylu_in_bed
       state: turned_off
     - task:
       - binary_sensor.someone_in_bed
