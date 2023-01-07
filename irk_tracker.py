@@ -18,6 +18,7 @@ tracker_log_rows_per_flush = 100
 
 class IrkTracker(hass.Hass):
     def initialize(self):
+        self.known_addr_cache = {}
         self.room_aliases = self.args.get('room_aliases', {})
         self.valid_rooms = set()
         self.device_in_room = defaultdict(lambda: 'unknown')
@@ -61,6 +62,7 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.fit_model, "irk_tracker.fit_model")
         self.recent_observations = defaultdict(lambda: [])
         self.run_minutely(self.inference, time(0,0,0))
+        self.run_hourly(self.clear_known_addr_cache, time(0,0,0))
 
     def fit_model(self, event_name, data, kwargs):
         dfs = []
@@ -131,39 +133,50 @@ class IrkTracker(hass.Hass):
 
     def ble_tracker_cb(self, event_name, data, kwargs):
         #self.log(f'event: {event_name} : {data}')
-        addr = bytes.fromhex(data['addr'].replace(":",""))
         #time = du.parse(data['metadata']['time_fired'])
         # TODO this should actually do the parsing above with the timezone awareness
         time = datetime.now()
         source = data['source']
         rssi = int(data['rssi'])
-        pt = bytearray(b'\0' * 16)
-        pt[15] = addr[2]
-        pt[14] = addr[1]
-        pt[13] = addr[0]
-        for name, cipher in self.ciphers.items():
-            msg = cipher.encrypt(bytes(pt))
-            if msg[15] == addr[5] and msg[14] == addr[4] and msg[13] == addr[3]:
-                if self.recording_df is not None:
-                    self.recording_df['time'].append(time)
-                    self.recording_df['device'].append(name)
-                    self.recording_df['source'].append(source)
-                    self.recording_df['rssi'].append(rssi)
-                    if len(self.recording_df['time']) > self.rows_per_flush:
-                        self.flush_recording()
-                # handle publishing update for appropriate entity
-                obs = self.recent_observations[(source,name)]
-                #if source in self.rssi_adjustments:
-                #    self.log(f"Adjusting rssi for {source} from {rssi} to {rssi + self.rssi_adjustments.get(source,0)}")
-                obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
-                self.tracking_resolve(name)
-                if name in self.expiry_timers:
-                    self.cancel_timer(self.expiry_timers[name])
-                self.expiry_timers[name] = self.run_in(self.device_expiry, delay=self.tracking_window.total_seconds(), expiring_device = name)
-                #self.log(f"found a match for {name} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
+        matched_device = 'none'
+        if data['addr'] in self.known_addr_cache:
+            matched_device = self.known_addr_cache[data['addr']]
+        else:
+            addr = bytes.fromhex(data['addr'].replace(":",""))
+            pt = bytearray(b'\0' * 16)
+            pt[15] = addr[2]
+            pt[14] = addr[1]
+            pt[13] = addr[0]
+            for name, cipher in self.ciphers.items():
+                msg = cipher.encrypt(bytes(pt))
+                if msg[15] == addr[5] and msg[14] == addr[4] and msg[13] == addr[3]:
+                    matched_device = name
+                    break
+            # This also caches that a device is unknown
+            self.known_addr_cache[data['addr']] = matched_device
+        if matched_device == 'none':
+            return
+        if self.recording_df is not None:
+            self.recording_df['time'].append(time)
+            self.recording_df['device'].append(matched_device)
+            self.recording_df['source'].append(source)
+            self.recording_df['rssi'].append(rssi)
+            if len(self.recording_df['time']) > self.rows_per_flush:
+                self.flush_recording()
+        # handle publishing update for appropriate entity
+        obs = self.recent_observations[(source,matched_device)]
+        #if source in self.rssi_adjustments:
+        #    self.log(f"Adjusting rssi for {source} from {rssi} to {rssi + self.rssi_adjustments.get(source,0)}")
+        obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
+        self.tracking_resolve(matched_device)
+        if matched_device in self.expiry_timers:
+            self.cancel_timer(self.expiry_timers[matched_device])
+        self.expiry_timers[matched_device] = self.run_in(self.device_expiry, delay=self.tracking_window.total_seconds(), expiring_device = matched_device)
+        #self.log(f"found a match for {matched_device} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
 
     def device_expiry(self, kwargs):
         device = kwargs['expiring_device']
+        del self.expiry_timers[device]
         self.tracking_resolve(device)
 
     def tracking_resolve(self, device):
@@ -281,6 +294,9 @@ class IrkTracker(hass.Hass):
     def prune_old_obs(self, obs):
         while obs and (obs[0][0] + self.tracking_window).timestamp() < datetime.now().timestamp():
             obs.pop(0)
+
+    def clear_known_addr_cache(self, kwargs):
+        self.known_addr_cache = {}
 
     def inference(self, kwargs):
         for (source, name) in self.recent_observations:

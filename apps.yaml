@@ -165,6 +165,7 @@ tracker_test:
   room_aliases:
     basement_beacon: downstairs
     ep1-david-office: david-office
+    ep1-aysylu-office: aysylu-office
     living_room_blinds: main-floor
     garage_assistant:
       secondary_clarifiers:
