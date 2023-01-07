@@ -241,10 +241,13 @@ class LightController(hass.Hass):
                 else:
                     self.log(f"Unexpected state for {self.light}: {cur_state}")
             if data['domain'] == 'light' and data['service'] == 'turn_on':
-                if 'brightness_pct' in service_data:
-                    new_brightness = service_data['brightness_pct']
-                    delta = abs(new_brightness - self.target_brightness) / new_brightness
-                    if delta > 0.05:
+                if 'brightness_pct' in service_data or 'brightness' in service_data:
+                    if 'brightness_pct' in service_data:
+                        new_brightness = service_data['brightness_pct']
+                    elif 'brightness' in service_data:
+                        new_brightness = service_data['brightness'] / 255 * 100
+                    delta = abs(new_brightness - self.target_brightness)
+                    if delta > 5:
                         # probably was a manual override
                         self.state = 'manual'
                         self.update_light()
