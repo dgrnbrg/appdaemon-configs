@@ -51,7 +51,7 @@ class IrkTracker(hass.Hass):
         all_examples = glob(f"{self.data_loc}examples*.csv")
         if len(all_examples) > 0:
             self.log(f"found {len(all_examples)} preexisting examples, fitting model...")
-            self.fit_model(None, {}, {})
+            #self.fit_model(None, {}, {})
             self.log("model fit")
         else:
             self.knn = None
@@ -61,7 +61,7 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.listen_event(self.fit_model, "irk_tracker.fit_model")
         self.recent_observations = defaultdict(lambda: [])
-        self.run_minutely(self.inference, time(0,0,0))
+        #self.run_minutely(self.inference, time(0,0,0))
         self.run_hourly(self.clear_known_addr_cache, time(0,0,0))
 
     def fit_model(self, event_name, data, kwargs):
@@ -135,9 +135,6 @@ class IrkTracker(hass.Hass):
         #self.log(f'event: {event_name} : {data}')
         #time = du.parse(data['metadata']['time_fired'])
         # TODO this should actually do the parsing above with the timezone awareness
-        time = datetime.now()
-        source = data['source']
-        rssi = int(data['rssi'])
         matched_device = 'none'
         if data['addr'] in self.known_addr_cache:
             matched_device = self.known_addr_cache[data['addr']]
@@ -156,6 +153,9 @@ class IrkTracker(hass.Hass):
             self.known_addr_cache[data['addr']] = matched_device
         if matched_device == 'none':
             return
+        time = datetime.now()
+        source = data['source']
+        rssi = int(data['rssi'])
         if self.recording_df is not None:
             self.recording_df['time'].append(time)
             self.recording_df['device'].append(matched_device)
@@ -256,8 +256,12 @@ class IrkTracker(hass.Hass):
             if isinstance(alias, str): # direct mapping
                 return alias
             elif 'secondary_clarifiers' in alias:
-                if i != 0:
-                    _,_,next_source = weighted_votes[i-1]
+                if i != 0 and i < (len(weighted_votes) + 1):
+                    try:
+                        _,_,next_source = weighted_votes[i-1]
+                    except:
+                        self.log(f"for {device} resolving inner for {source} at {i}, next will have index {i-1} and weighted_votes len={len(weighted_votes)}, weighted_votes={weighted_votes}")
+                        raise
                     #self.log(f"for {device} resolving inner for {source} at {i}, next is {next_source} at {i-1}")
                     next_room = resolve_inner(next_source, i+1)
                     if next_room in alias['secondary_clarifiers']:
