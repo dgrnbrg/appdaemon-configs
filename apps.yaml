@@ -151,6 +151,7 @@ tracker_test:
     - device_name: 'aysylu watch'
       irk: 0033354fb61c4f44f2389c68298802e4
       person: aysylu
+  away_tracker_arrival_delay_secs: 120
   away_trackers:
     - person: david
       tracker: device_tracker.david_iphone
@@ -158,7 +159,7 @@ tracker_test:
       tracker: device_tracker.aysylu_iphone
   rssi_adjustments:
     bedroom_blinds: 15
-    living_room_blinds: 15
+    living_room_blinds: 17
   tracking_window_minutes: 3
   tracking_min_superplurality: 1.2
   ping_halflife_seconds: 60

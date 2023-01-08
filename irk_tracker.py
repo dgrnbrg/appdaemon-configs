@@ -1,4 +1,5 @@
 import hassapi as hass
+import adbase as ad
 from collections import defaultdict
 import pandas as pd
 from Crypto.Cipher import AES
@@ -29,6 +30,8 @@ class IrkTracker(hass.Hass):
         self.rssi_adjustments = self.args.get('rssi_adjustments',{})
         self.ping_halflife_seconds = self.args.get('ping_halflife_seconds', 60)
         self.log(f'rssi_adjustments = {self.rssi_adjustments}')
+        self.away_tracker_state = {}
+        self.away_tracker_pending_arrivals = {}
         for room in self.room_aliases.values():
             if isinstance(room, str):
                 self.valid_rooms.add(room)
@@ -55,6 +58,12 @@ class IrkTracker(hass.Hass):
             self.log("model fit")
         else:
             self.knn = None
+        for cfg in self.args['away_trackers']:
+            #self.log(f"configuring away tracker {cfg}")
+            person = cfg['person']
+            tracker = cfg['tracker']
+            self.away_tracker_state[person] = 'home' if self.get_state(tracker) == 'home' else 'away'
+            self.listen_state(self.away_tracker_cb, tracker, person=person)
         self.listen_event(self.ble_tracker_cb, "esphome.ble_tracking_beacon")
         self.recording_df = None
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
@@ -131,6 +140,30 @@ class IrkTracker(hass.Hass):
             self.log(f"stopped recording for {self.recording_tag}")
             self.recording_df = None
 
+    @ad.app_lock
+    def away_tracker_cb(self, entity, attr, old, new, kwargs):
+        person = kwargs['person']
+        self.log(f"running away tracker cb for person = {person} state = {new} entity = {entity}")
+        if new != 'home':
+            if person in self.away_tracker_pending_arrivals:
+                # cancel a pending arrival if we got a new not here event
+                self.cancel_timer(self.away_tracker_pending_arrivals[person])
+                del self.away_tracker_pending_arrivals[person]
+                self.log(f"canceled pending arrival timer")
+            self.away_tracker_state[person] = 'away'
+            person_ent = self.get_entity(f'device_tracker.{person}_irk')
+            person_ent.set_state(state='away', attributes={'from_device': entity})
+        else:
+            self.log(f"arrived home, acknowledging in {self.args['away_tracker_arrival_delay_secs']}")
+            cb_token = self.run_in(self.arrived_home, person=person, delay=self.args['away_tracker_arrival_delay_secs'])
+            self.away_tracker_pending_arrivals[person] = cb_token
+
+    @ad.app_lock
+    def arrived_home(self, kwargs):
+        self.log(f"registering that {kwargs['person']} arrived home (after delay)")
+        self.away_tracker_state[kwargs['person']] = 'home'
+
+    @ad.app_lock
     def ble_tracker_cb(self, event_name, data, kwargs):
         #self.log(f'event: {event_name} : {data}')
         #time = du.parse(data['metadata']['time_fired'])
@@ -174,6 +207,7 @@ class IrkTracker(hass.Hass):
         self.expiry_timers[matched_device] = self.run_in(self.device_expiry, delay=self.tracking_window.total_seconds(), expiring_device = matched_device)
         #self.log(f"found a match for {matched_device} with rssi {data['rssi']} from {source} at {time} (mac: {data['addr']})")
 
+    @ad.app_lock
     def device_expiry(self, kwargs):
         device = kwargs['expiring_device']
         del self.expiry_timers[device]
@@ -217,10 +251,11 @@ class IrkTracker(hass.Hass):
         device_person = self.identities[device]['person']
         if device in self.device_in_room and in_room != 'unknown':
             old_room = self.device_in_room[device]
-            if old_room != in_room:
-                # publish that the person is in in_room
-                person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
-                person_ent.set_state(state=in_room, attributes={'from_device': device})
+            if old_room != in_room or self.get_state(f'device_tracker.{device_person}_irk') == 'away':
+                # publish that the person is in in_room, if we think they're actually here
+                if self.away_tracker_state[device_person] == 'home':
+                    person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
+                    person_ent.set_state(state=in_room, attributes={'from_device': device})
                 # mark that this is the "active" device for that person
                 self.active_device_by_person[device_person] = device
         # publish the device-level stat
@@ -230,7 +265,7 @@ class IrkTracker(hass.Hass):
         # finally, only if now every device is unknown
         active_device = self.active_device_by_person[device_person]
         active_device_unknown = self.device_in_room[active_device] == 'unknown'
-        if active_device_unknown:
+        if active_device_unknown and self.away_tracker_state[device_person] == 'home':
             # publish that the person isn't detected
             person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
             person_ent.set_state(state='unknown', attributes={'from_device': f'{active_device} unknown'})
@@ -299,6 +334,7 @@ class IrkTracker(hass.Hass):
         while obs and (obs[0][0] + self.tracking_window).timestamp() < datetime.now().timestamp():
             obs.pop(0)
 
+    @ad.app_lock
     def clear_known_addr_cache(self, kwargs):
         self.known_addr_cache = {}
 
