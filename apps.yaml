@@ -146,7 +146,8 @@ tracker_test:
       irk: 57d899b39a9bca384e89ab741b56d3bd
       person: david
     - device_name: 'aysylu phone'
-      irk: 678DDF7B3BDB195106A67E5BC12E556F
+      #irk: 678DDF7B3BDB195106A67E5BC12E556F # old phone
+      irk: 091FF72862472C990E6F4DE59242326B
       person: aysylu
     - device_name: 'aysylu watch'
       irk: 0033354fb61c4f44f2389c68298802e4
