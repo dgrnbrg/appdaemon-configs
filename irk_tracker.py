@@ -38,6 +38,7 @@ class IrkTracker(hass.Hass):
             # TODO include rooms from other alias types
         self.identities = {x['device_name']: x for x in self.args['identities']}
         self.ciphers = {}
+        people = set(x['person'] for x in self.args['identities'])
         for identity, data in self.identities.items():
             self.ciphers[identity] = AES.new(bytearray.fromhex(data['irk']), AES.MODE_ECB)
             device_ent = self.get_entity(f'device_tracker.{identity.replace(" ", "_")}_irk')
@@ -64,14 +65,17 @@ class IrkTracker(hass.Hass):
             tracker = cfg['tracker']
             self.away_tracker_state[person] = 'home' if self.get_state(tracker) == 'home' else 'away'
             self.listen_state(self.away_tracker_cb, tracker, person=person)
-        self.listen_event(self.ble_tracker_cb, "esphome.ble_tracking_beacon")
+        for person in people:
+            person_ent = self.get_entity(f'device_tracker.{person}_irk')
+            init_state = self.away_tracker_state.get(person, 'unknown')
+            person_ent.set_state(state=init_state, attributes={'from_device': 'init'})
+        self.listen_event(self.ble_tracker_cb, "esphome.ble_tracking_beacon", addr=lambda addr: self.known_addr_cache.get(addr,None) != 'none')
         self.recording_df = None
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.listen_event(self.fit_model, "irk_tracker.fit_model")
         self.recent_observations = defaultdict(lambda: [])
         #self.run_minutely(self.inference, time(0,0,0))
-        self.run_hourly(self.clear_known_addr_cache, time(0,0,0))
 
     def fit_model(self, event_name, data, kwargs):
         dfs = []
@@ -171,6 +175,8 @@ class IrkTracker(hass.Hass):
         matched_device = 'none'
         if data['addr'] in self.known_addr_cache:
             matched_device = self.known_addr_cache[data['addr']]
+            #if matched_device == 'none':
+            #    self.log(f"fast skipping {data['addr']}")
         else:
             addr = bytes.fromhex(data['addr'].replace(":",""))
             pt = bytearray(b'\0' * 16)
@@ -186,6 +192,7 @@ class IrkTracker(hass.Hass):
             self.known_addr_cache[data['addr']] = matched_device
         if matched_device == 'none':
             return
+        #self.log(f"found a match {matched_device}")
         time = datetime.now()
         source = data['source']
         rssi = int(data['rssi'])
@@ -334,9 +341,6 @@ class IrkTracker(hass.Hass):
         while obs and (obs[0][0] + self.tracking_window).timestamp() < datetime.now().timestamp():
             obs.pop(0)
 
-    @ad.app_lock
-    def clear_known_addr_cache(self, kwargs):
-        self.known_addr_cache = {}
 
     def inference(self, kwargs):
         for (source, name) in self.recent_observations:
