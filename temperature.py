@@ -426,9 +426,11 @@ class BasicThermostatController(hass.Hass):
     def initialize(self):
         self.thermostat = self.args["climate_entity"]
         self.max_diff_for_heat_pump = self.args["max_diff_for_heat_pump"]
+        self.report_ent_name = self.args['report_entity']
+        self.weather_ent = self.args.get("hourly_weather", "weather.home_hourly")
         runtime = datetime.time(0, 0, 0)
-        self.listen_event(self.wind_down_event, "ios.action_fired", actionName="wind_down")
-        self.listen_event(self.morning_alarm_event, "ios.action_fired", actionName="morning_alarm")
+        self.listen_event(self.wind_down_event, self.args["events"]["sleep"]["name"], actionName= self.args["events"]["sleep"]["actionName"])
+        self.listen_event(self.morning_alarm_event, self.args["events"]["wake"]["name"], actionName= self.args["events"]["wake"]["actionName"])
         self.run_daily(self.determine_if_warm_or_cool_day, '04:00:00')
         self.presence = [parse_conditional_expr(x) for x in self.args['presence']]
         self.people = {ent: 'unknown' for (_,_,ent) in self.presence}
@@ -473,7 +475,7 @@ class BasicThermostatController(hass.Hass):
         for ent, status in self.people.items():
             if status == 'home':
                 any_home = True
-        report_ent = self.get_entity('sensor.basic_thermostat_controller')
+        report_ent = self.get_entity(self.report_ent_name)
         self.log(f"updating {self.presence_state} {any_home} {self.people}")
         thermostat_state =  self.get_state(self.thermostat, attribute='all')
         if self.presence_state != 'home' and any_home:
@@ -523,7 +525,7 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def determine_if_warm_or_cool_day(self, kwargs):
         # get temp at noon
-        forecasts = self.get_state("weather.home_hourly", attribute="forecast")
+        forecasts = self.get_state(self.weather_ent, attribute="forecast")
         noonish_forecast = forecasts[0]
         target_time = datetime.datetime.combine(datetime.date.today(), datetime.time(12,0), pytz.timezone('US/Eastern'))
         for hourly in forecasts:
@@ -543,7 +545,7 @@ class BasicThermostatController(hass.Hass):
             target_temp = self.today_conf['cool_day']
             self.log(f"Treating today as a cool day")
         self.today_conf['target_temp'] = target_temp
-        report_ent = self.get_entity('sensor.basic_thermostat_controller')
+        report_ent = self.get_entity(self.report_ent_name)
         report_ent.set_state(state=self.presence_state, attributes=self.today_conf)
 
     @ad.app_lock

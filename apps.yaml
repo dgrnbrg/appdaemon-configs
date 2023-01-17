@@ -423,7 +423,9 @@ bedroom_far_light:
 basic_thermostat:
   class: BasicThermostatController
   module: temperature
+  report_entity: sensor.basic_thermostat_controller
   climate_entity: climate.thermostat_2
+  hourly_weather: weather.home_hourly # optional/default
   max_diff_for_heat_pump: 4
   heat:
     outside_splitpoint: 62
@@ -437,6 +439,13 @@ basic_thermostat:
     cool_day: 72
     sleep: 68
     away: 77
+  events:
+    sleep:
+      name: ios.action_fired
+      actionName: wind_down
+    wake:
+      name: ios.action_fired
+      actionName: morning_alarm
   presence:
     - device_tracker.david_iphone == home
     - device_tracker.aysylu_iphone == home
