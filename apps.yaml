@@ -1,6 +1,6 @@
 ---
-global_modules:
-  - influx
+#global_modules:
+#  - influx
 
     #offset_calibration:
     #  class: OffsetCalibration
@@ -132,26 +132,27 @@ global_modules:
     #    - aysylu_office
     #    - david_office
 
-tracker_test:
+tracker:
   class: IrkTracker
   module: irk_tracker
+  #log: irk_tracker_log
   training_input_text: input_text.irk_tag
   data_loc: tracker_logs/
   rows_per_flush: 100
-  identities:
-    - device_name: 'david phone'
-      irk: 0C9582B2C7D3BE4B8BE2E2C33FFEFA8F
-      person: david
-    - device_name: 'david watch'
-      irk: 57d899b39a9bca384e89ab741b56d3bd
-      person: david
-    - device_name: 'aysylu phone'
-      #irk: 678DDF7B3BDB195106A67E5BC12E556F # old phone
-      irk: 091FF72862472C990E6F4DE59242326B
-      person: aysylu
-    - device_name: 'aysylu watch'
-      irk: 0033354fb61c4f44f2389c68298802e4
-      person: aysylu
+  identities: !secret irk_tracker_identities
+  # Example -- TODO document how to retrieve IRK for devices
+  #    - device_name: 'david phone'
+  #      irk: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXF
+  #      person: david
+  #    - device_name: 'david watch'
+  #      irk: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  #      person: david
+  #    - device_name: 'partner phone'
+  #      irk: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  #      person: aysylu
+  #    - device_name: 'partner watch'
+  #      irk: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  #      person: aysylu
   away_tracker_arrival_delay_secs: 120
   away_trackers:
     - person: david
@@ -289,12 +290,9 @@ david_office_lights:
   class: LightController
   module: lights
   triggers:
-    #- task:
-    #  - input_boolean.dna_sleeping
-    #  - input_boolean.david_in_bed
-    #  state: turned_off
    - presence:
      - binary_sensor.david_office_occupancy
+     #- input_text.test_helper_text == home
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.david_office
 
@@ -302,10 +300,6 @@ aysylu_office_lights:
   class: LightController
   module: lights
   triggers:
-    #- task:
-    #  - input_boolean.dna_sleeping
-    #  - input_boolean.aysylu_in_bed
-    #  state: turned_off
    - presence:
      - binary_sensor.aysylu_office_occupancy
   adaptive_lighting: switch.adaptive_lighting_default
@@ -315,10 +309,6 @@ aysylu_office_lamp:
   class: LightController
   module: lights
   triggers:
-    #- task:
-    #  - input_boolean.dna_sleeping
-    #  - input_boolean.aysylu_in_bed
-    #  state: turned_off
     - presence:
       - binary_sensor.aysylu_office_occupancy
       condition: input_boolean.it_is_evening
@@ -393,6 +383,7 @@ downstairs_geoleaf_light:
   triggers:
     - task:
       - binary_sensor.desktop_kl479rj_power_status != unavailable
+      - binary_sensor.supercomputer_power_status != unavailable
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.wled
 

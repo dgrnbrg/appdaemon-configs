@@ -103,7 +103,7 @@ class LightController(hass.Hass):
                     if present_state:
                         self.listen_state(self.trigger_on, entity, new=present_state, duration=duration, trigger=i, immediate=True)
                     else:
-                        self.listen_state(self.trigger_on, entity, duration=duration, trigger=i, absent_state=absent_state, immediate=True)
+                        self.listen_state(self.trigger_on, entity, new=lambda n: n != absent_state, duration=duration, trigger=i, immediate=True)
                 if t.get('turns_off', True):
                     if entity in pes:
                         duration = t.get('delay_off', 0)
@@ -112,11 +112,13 @@ class LightController(hass.Hass):
                     if absent_state:
                         self.listen_state(self.trigger_off, entity, new=absent_state, duration=duration, trigger=i, immediate=True)
                     else:
-                        self.listen_state(self.trigger_off, entity, duration=duration, trigger=i, present_state=present_state, immediate=True)
+                        self.listen_state(self.trigger_off, entity, new=lambda n: n != present_state, duration=duration, trigger=i, immediate=True)
             self.triggers.append(trigger)
         self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_kelvin', immediate=True)
         self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
-        self.listen_event(self.service_snoop, "call_service")
+        self.listen_event(self.service_snoop, "call_service", domain="button", service="press", service_data=self.service_entity_matcher(self.reautomate_button))
+        self.listen_event(self.service_snoop, "call_service", domain="light", service_data=self.service_entity_matcher(self.light))
+        self.listen_event(self.service_snoop, "call_service", domain="input_boolean", service_data=self.service_entity_matcher(self.guest_mode_switch))
         self.run_daily(self.reset_manual, self.daily_off_time)
         self.log(f"Completed initialization for {self.light}")
         self.get_entity(self.reautomate_button).set_state(state='unknown', attributes={'friendly_name': f'Reautomate {self.light}'})
@@ -137,9 +139,6 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def trigger_off(self, entity, attr, old, new, kwargs):
-        if 'present_state' in kwargs: # this may be a false trigger if using a state comparison
-            if new == kwargs['present_state']:
-                return
         trigger = self.triggers[kwargs['trigger']]
         old_state = trigger['state']
         trigger['states'][entity] = 'off'
@@ -158,9 +157,6 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def trigger_on(self, entity, attr, old, new, kwargs):
-        if 'absent_state' in kwargs: # this may be a false trigger if using a state comparison
-            if new == kwargs['absent_state']:
-                return
         #self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
         trigger = self.triggers[kwargs['trigger']]
         old_state = trigger['state']
@@ -189,6 +185,18 @@ class LightController(hass.Hass):
         self.do_update.add('temp')
         self.color_temp = new
         self.update_light()
+
+    def service_entity_matcher(self, target_id):
+        def match(service_data):
+            has = False
+            if 'entity_id' in service_data:
+                entity_id = service_data['entity_id']
+                if isinstance(entity_id, list):
+                    has = target_id in entity_id
+                else:
+                    has = target_id == entity_id
+            return has
+        return match
 
     @ad.app_lock
     def service_snoop(self, event_name, data, kwargs):
