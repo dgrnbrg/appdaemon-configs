@@ -73,49 +73,7 @@ class IrkTracker(hass.Hass):
         self.recording_df = None
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
-        self.listen_event(self.fit_model, "irk_tracker.fit_model")
         self.recent_observations = defaultdict(lambda: [])
-        #self.run_minutely(self.inference, time(0,0,0))
-
-    def fit_model(self, event_name, data, kwargs):
-        dfs = []
-        for x in glob(f'{self.data_loc}examples*.csv'):
-            df = pd.read_csv(x, parse_dates=[0])
-            dfs.append(df)
-        df = pd.concat(dfs)
-        df = df.sort_values(by=['time']).query("device not in ['aysylu phone', 'aysylu watch'] and source not in ['basement_pi']")
-        base_station_names = list(df['source'].unique())
-        rolling_rssi = df.set_index('time').groupby(['device', 'source']).rolling("3min", min_periods=10)['rssi'].mean().reset_index()
-        rolling_labeled = pd.merge(df.drop('rssi', axis=1), rolling_rssi, on=['device', 'source', 'time']).dropna()
-        with_station = rolling_labeled
-        for station in base_station_names:
-            specific_station = rolling_labeled.query(f"source == '{station}'").copy()
-            specific_station = specific_station.drop('source',axis=1).rename(columns={'rssi': station})
-            with_station = pd.merge_asof(with_station, specific_station,
-                                         left_on='time',
-                                         right_on='time',
-                                         direction='backward',
-                                         allow_exact_matches=False,
-                                         tolerance=pd.Timedelta(seconds=5),
-                                         by=['device', 'tag'])
-        for station in base_station_names:
-            with_station[station] = np.where(with_station['source'] == station, with_station['rssi'], with_station[station])
-        with_station = with_station.drop(['source', 'rssi'], axis=1).dropna()#.fillna(-100)
-        self.knn_columns = base_station_names
-        self.knn = KNeighborsClassifier(n_neighbors=7)
-        self.knn.fit(with_station[base_station_names].to_numpy(), with_station['tag'].to_numpy())
-        clf1 = svm.SVC()
-        clf1.fit(with_station[['living_room_blinds', 'bedroom_blinds']].to_numpy(),
-                 np.where(with_station['tag'] == "upstairs-both-20221027", "upstairs", "other"))
-        clf2 = svm.SVC()
-        clf2.fit(with_station[['basement_beacon', 'bedroom_blinds']].to_numpy(), np.where(with_station['tag'] == "basement-david-20221027", "basement", "main-floor"))
-        def predict(a):
-            m = {k: v for k,v in zip(base_station_names, a)}
-            r = clf1.predict([[m[x] for x in ['living_room_blinds', 'bedroom_blinds']]])[0]
-            if r == 'other':
-                r = clf2.predict([[m[x] for x in ['basement_beacon', 'bedroom_blinds']]])[0]        
-            return r
-        self.svm = predict
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
@@ -340,39 +298,3 @@ class IrkTracker(hass.Hass):
     def prune_old_obs(self, obs):
         while obs and (obs[0][0] + self.tracking_window).timestamp() < datetime.now().timestamp():
             obs.pop(0)
-
-
-    def inference(self, kwargs):
-        for (source, name) in self.recent_observations:
-            if self.knn:
-                means = defaultdict(lambda: 0)
-                num_detected = 0
-                for (source, otherdevice), obs in self.recent_observations.items():
-                    if otherdevice == name:
-                        self.prune_old_obs(obs)
-                        if len(obs) >= 10:
-                            for (_, rssi) in obs:
-                                means[source] += float(rssi)
-                            means[source] /= len(obs)
-                            num_detected += 1
-                        else:
-                            #self.log(f"not predicting for {name} b/c {source} only has {len(obs)} obs for {name}")
-                            means[source] = -100.0
-                device_entity = self.get_entity(f"sensor.ble_tracker_{name.replace(' ', '_')}")
-                if num_detected != 0:
-                    if num_detected != len(means):
-                        #self.log(f"only detected {num_detected} stations ({[x for x,v in means.items() if v != -100.0]})")
-                        pass
-                    input_arg = [means[source] for source in self.knn_columns]
-                    room = self.knn.predict([input_arg])[0]
-                    svm_room = self.svm(input_arg)
-                    m = {k: v for k,v in zip(self.knn_columns, input_arg)}
-                    if not room.startswith(svm_room):
-                        #self.log(f"Localized {name} to knn:{room} svm:{svm_room} {m}")
-                        device_entity.set_state(state=f"{svm_room} and {room}")
-                    else:
-                        device_entity.set_state(state=svm_room)
-                else:
-                    device_entity.set_state(state='insufficient')
-                    vis = {k:v for k,v in means.items()}
-                    #self.log(f"Couldn't localize {name}; only obs from {vis}")
