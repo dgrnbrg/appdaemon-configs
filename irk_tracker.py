@@ -7,8 +7,6 @@ import dateutil.parser as du
 from datetime import timedelta, datetime, time
 import os
 from glob import glob
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn import svm
 from collections import defaultdict
 import numpy as np
 
