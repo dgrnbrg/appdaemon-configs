@@ -39,9 +39,19 @@ class IrkTracker(hass.Hass):
         people = set(x['person'] for x in self.args['identities'])
         for identity, data in self.identities.items():
             self.ciphers[identity] = AES.new(bytearray.fromhex(data['irk']), AES.MODE_ECB)
-            device_ent = self.get_entity(f'device_tracker.{identity.replace(" ", "_")}_irk')
+            device_clean_name = identity.replace(" ", "_")
+            device_ent = self.get_entity(f'device_tracker.{device_clean_name}_irk')
             if device_ent.exists():
                 self.device_in_room[identity] = device_ent.get_state(attribute='room')
+            person = data['person']
+            force_primary_button = f"button.irk_tracker_make_primary_{person}_{device_clean_name}"
+            self.get_entity(force_primary_button).set_state(state='unknown', attributes={'friendly_name': f"Set {identity} as the primary device for {person}", 'person': person, 'device': identity})
+        def filter_make_primary_entity(x):
+            entity = x.get('entity_id')
+            if isinstance(entity, str):
+                return entity.startswith('button.irk_tracker_make_primary_')
+            return False
+        self.listen_event(self.make_primary_cb, "call_service", domain="button", service="press", service_data=filter_make_primary_entity)
         if 'data_loc' in self.args:
             self.data_loc = f"/config/appdaemon/{self.args['data_loc']}"
         else:
@@ -124,6 +134,16 @@ class IrkTracker(hass.Hass):
         self.away_tracker_state[kwargs['person']] = 'home'
 
     @ad.app_lock
+    def make_primary_cb(self, event_name, data, kwargs):
+        entity = data['service_data']['entity_id']
+        button_attrs = self.get_state(entity, attribute='all')
+        person = button_attrs['attributes']['person']
+        device = button_attrs['attributes']['device']
+        self.active_device_by_person[person] = device
+        self.log(f"Manually overriding primary device for {person} to be {device}")
+        self.tracking_resolve(device, force_update=True)
+
+    @ad.app_lock
     def ble_tracker_cb(self, event_name, data, kwargs):
         #self.log(f'event: {event_name} : {data}')
         #time = du.parse(data['metadata']['time_fired'])
@@ -176,7 +196,7 @@ class IrkTracker(hass.Hass):
         del self.expiry_timers[device]
         self.tracking_resolve(device)
 
-    def tracking_resolve(self, device):
+    def tracking_resolve(self, device, force_update=False):
         room_votes = defaultdict(lambda: [])
         total_votes = 0
         for (source, d), obs in self.recent_observations.items():
@@ -214,7 +234,7 @@ class IrkTracker(hass.Hass):
         device_person = self.identities[device]['person']
         if device in self.device_in_room and in_room != 'unknown':
             old_room = self.device_in_room[device]
-            if old_room != in_room or self.get_state(f'device_tracker.{device_person}_irk') == 'away':
+            if old_room != in_room or self.get_state(f'device_tracker.{device_person}_irk') == 'away' or force_update:
                 # publish that the person is in in_room, if we think they're actually here
                 if self.away_tracker_state[device_person] == 'home':
                     person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
