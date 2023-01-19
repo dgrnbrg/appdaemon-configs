@@ -48,6 +48,42 @@ redirect:
 # ...etc...
 ```
 
+### Status viewing
+
+I use `multiple-entity-row` to show the current tracker status.
+I also configure a tap action for the devices so that I can override the automatic device detection, since sometimes an RF glitch can make the system think that you're with the wrong device.
+
+```
+type: entities
+title: People
+entities:
+  - entity: device_tracker.david_irk
+    type: custom:multiple-entity-row
+    name: David IRK
+    state_header: Person
+    secondary_info:
+      attribute: last-updated
+      name: false
+    entities:
+      - entity: device_tracker.david_phone_irk
+        name: Phone
+        tap_action:
+          action: call-service
+          service: button.press
+          service_data:
+            entity_id: button.irk_tracker_make_primary_david_david_phone
+      - entity: device_tracker.david_watch_irk
+        name: Watch
+        tap_action:
+          action: call-service
+          service: button.press
+          service_data:
+            entity_id: button.irk_tracker_make_primary_david_david_watch
+  - entity: device_tracker.david_iphone
+    name: David iCloud3
+    icon: mdi:human
+```
+
 ## Appdaemon Configuration
 
 You can probably use the tracker configuration in apps.yaml without many changes, however here are some things to consider:
