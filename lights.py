@@ -49,6 +49,7 @@ class LightController(hass.Hass):
     """
     @ad.app_lock
     def initialize(self):
+        self.debug_enabled = self.args.get('debug', False)
         self.light = self.args['light']
         self.light_name = self.light.split('.')[1] # drop the domain
         self.reautomate_button = f'button.reautomate_{self.light_name}'
@@ -101,18 +102,26 @@ class LightController(hass.Hass):
                     else:
                         duration = 0
                     if present_state:
+                        if self.debug_enabled:
+                            self.log(f"setting up a positive turn_on [index={i}, cause={entity}], present_state = {present_state}")
                         self.listen_state(self.trigger_on, entity, new=present_state, duration=duration, trigger=i, immediate=True)
                     else:
-                        self.listen_state(self.trigger_on, entity, new=lambda n: n != absent_state, duration=duration, trigger=i, immediate=True)
+                        if self.debug_enabled:
+                            self.log(f"setting up a negative turn_on [index={i}, cause={entity}], absent_state = {absent_state}")
+                        self.listen_state(self.trigger_on, entity, new=lambda n, absent_state=absent_state: n != absent_state, duration=duration, trigger=i, immediate=True)
                 if t.get('turns_off', True):
                     if entity in pes:
                         duration = t.get('delay_off', 0)
                     else:
                         duration = 0
                     if absent_state:
+                        if self.debug_enabled:
+                            self.log(f"setting up a positive turn_off [index={i}, cause={entity}], absent_state = {absent_state}")
                         self.listen_state(self.trigger_off, entity, new=absent_state, duration=duration, trigger=i, immediate=True)
                     else:
-                        self.listen_state(self.trigger_off, entity, new=lambda n: n != present_state, duration=duration, trigger=i, immediate=True)
+                        if self.debug_enabled:
+                            self.log(f"setting up a negative turn_off [index={i}, cause={entity}], present_state = {present_state}")
+                        self.listen_state(self.trigger_off, entity, new=lambda n, present_state=present_state: n != present_state, duration=duration, trigger=i, immediate=True)
             self.triggers.append(trigger)
         self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_kelvin', immediate=True)
         self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
@@ -120,7 +129,7 @@ class LightController(hass.Hass):
         self.listen_event(self.service_snoop, "call_service", domain="light", service_data=self.service_entity_matcher(self.light))
         self.listen_event(self.service_snoop, "call_service", domain="input_boolean", service_data=self.service_entity_matcher(self.guest_mode_switch))
         self.run_daily(self.reset_manual, self.daily_off_time)
-        self.log(f"Completed initialization for {self.light}")
+        self.log(f"Completed initialization for {self.light} (debug enabled: {self.debug_enabled})")
         self.get_entity(self.reautomate_button).set_state(state='unknown', attributes={'friendly_name': f'Reautomate {self.light}'})
         guest_switch_ent = self.get_entity(self.guest_mode_switch)
         if not guest_switch_ent.exists():
@@ -149,7 +158,8 @@ class LightController(hass.Hass):
                 all_presence_off = False
             if v == 'off' and t in trigger['condition_entities']:
                 any_condition_off = True
-        #self.log(f'trigger off for {self.light} because {entity} is off. all presence off={all_presence_off}. all condition off={any_condition_off}. prev={old_state}. states = {trigger["states"]}')
+        if self.debug_enabled:
+            self.log(f'trigger off for {self.light} because {entity} is off. all presence off={all_presence_off}. all condition off={any_condition_off}. prev={old_state}. states = {trigger["states"]}')
         if all_presence_off or any_condition_off:
             trigger['state'] = 'off'
             if old_state != 'off':
@@ -157,7 +167,8 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def trigger_on(self, entity, attr, old, new, kwargs):
-        #self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
+        if self.debug_enabled:
+            self.log(f"Trigger on running for the {kwargs['trigger']} trigger, and the length is {len(self.triggers)}")
         trigger = self.triggers[kwargs['trigger']]
         old_state = trigger['state']
         trigger['states'][entity] = 'on'
@@ -170,7 +181,8 @@ class LightController(hass.Hass):
                 all_conditions_on = False
         if all_conditions_on and any_presence_on:
             trigger['state'] = 'on'
-            #self.log(f'trigger on for {self.light} because {entity} went on. any presence on={any_presence_on}. all conditions on={all_conditions_on}. prev={old_state}')
+            if self.debug_enabled:
+                self.log(f'trigger on for {self.light} because {entity} went on. any presence on={any_presence_on}. all conditions on={all_conditions_on}. prev={old_state}')
             if old_state != 'on':
                 self.update_light()
 
@@ -235,7 +247,8 @@ class LightController(hass.Hass):
             return
         if guest_switch.get_state() == 'on':
             # we shouldn't do any of the manual control stuff
-            #self.log(f"not handling manual overrides due to guest mode {self.light}")
+            if self.debug_enabled:
+                self.log(f"not handling manual overrides due to guest mode {self.light}")
             return
         if has:
             # janky support for toggle
@@ -314,7 +327,8 @@ class LightController(hass.Hass):
         # also handle the delay functions
         if self.state == 'manual' or self.state == 'manual_off':
             # don't be automatic in this case
-            #self.log(f"not updating light b/c it's in manual mode")
+            if self.debug_enabled:
+                self.log(f"not updating light b/c it's in manual mode")
             update_stored_state()
             return
         if self.state == 'guest':
@@ -323,7 +337,8 @@ class LightController(hass.Hass):
             light_ent = self.get_entity(self.light)
             light_ent_state = light_ent.get_state()
             if light_ent_state == 'on':
-                #self.log(f'updating color temperature for guest mode light {self.light} = {light_ent_state} to {self.color_temp}')
+                if self.debug_enabled:
+                    self.log(f'updating color temperature for guest mode light {self.light} = {light_ent_state} to {self.color_temp}')
                 light_ent.turn_on(color_temp_kelvin=self.color_temp)
             else:
                 pass
@@ -336,11 +351,13 @@ class LightController(hass.Hass):
                 brightness = min(self.brightness, trigger['max_brightness'])
                 self.target_brightness = brightness
                 if trigger['target_state'] == 'turned_on':
-                    #self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness} and temp to {self.color_temp}")
+                    if self.debug_enabled:
+                        self.log(f"Matched {self.light} trigger {trigger}, setting brightness to {brightness} and temp to {self.color_temp}")
                     self.get_entity(self.light).turn_on(brightness_pct=brightness, kelvin=self.color_temp, transition=trigger['transition'])
                 elif trigger['target_state'] == 'turned_off':
                     self.get_entity(self.light).turn_off(transition=trigger['transition'])
-                    #self.log(f"Matched {self.light} trigger {trigger}, turning off")
+                    if self.debug_enabled:
+                        self.log(f"Matched {self.light} trigger {trigger}, turning off")
                 else:
                     self.log(f"Matched {self.light} trigger {trigger}, but the target_state wasn't understood")
                 update_stored_state()
@@ -348,6 +365,7 @@ class LightController(hass.Hass):
         self.state = 'off'
         # no triggers were active, so either we're off or we're faking
         self.get_entity(self.light).turn_off(transition=self.off_transition)
-        #self.log(f"no triggers active for {self.light}, turning off")
+        if self.debug_enabled:
+            self.log(f"no triggers active for {self.light}, turning off")
         update_stored_state()
 
