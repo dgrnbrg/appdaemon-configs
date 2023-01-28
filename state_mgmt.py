@@ -2,6 +2,7 @@ import hassapi as hass
 import adbase as ad
 import datetime
 import math
+import time
 
 class EveningTracker(hass.Hass):
     def initialize(self):
@@ -22,13 +23,13 @@ class BedStateManager(hass.Hass):
         self.persons_away = {}
         runtime = datetime.time(0, 0, 0)
         for person, cfg in self.args['iphones'].items():
-            self.listen_state(self.sleep_check_cb, cfg['charging'], new=lambda x: x in ['charging', 'full'], immediate=True, person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
+            self.listen_state(self.sleep_check_cb, cfg['charging'], new=lambda x: x.lower() in ['charging', 'full'], immediate=True, person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
             self.listen_state(self.sleep_check_cb, cfg['ssid'], new=lambda x: x in self.args['home_ssids'], person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
             self.listen_state(self.sleep_check_cb, self.args['bed_presence'], new='on', person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
-            self.listen_state(self.sleep_check_cb, self.args['evening'], new='on', person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
             self.persons_asleep[person] = False
-            self.persons_away[person] = True
-            self.run_hourly(self.check_far_away, runtime)
+            self.persons_away[person] = False
+            self.run_hourly(self.check_far_away, runtime, person=person, cfg=cfg)
+            self.run_in(self.check_far_away, delay=0, person=person, cfg=cfg)
 
     def check_far_away(self, kwargs):
         person = kwargs['person']
@@ -45,10 +46,10 @@ class BedStateManager(hass.Hass):
     def ios_wake_cb(self, event_name, data, kwargs):
         person = None
         cfg = None
-        for p in args['iphones']:
-            if p in data['event']['sourceDeviceID']:
+        for p in self.args['iphones']:
+            if p in data['sourceDeviceID']:
                 person = p
-                cfg = args['iphones'][p]
+                cfg = self.args['iphones'][p]
                 break
         if person is None:
             self.log(f"ios wake event didn't match any person: {data}")
@@ -71,21 +72,22 @@ class BedStateManager(hass.Hass):
         cfg = kwargs['cfg']
         if self.get_state(self.args['bed_presence']) == 'off':
             # someone must be in bed
-            return
-        if self.get_state(self.args['evening']) == 'off':
-            # it must be evening
+            self.log(f"saw {entity} become {new}, but not activating sleep for {person} because no one is in bed")
             return
         if self.get_state(cfg['ssid']) not in self.args['home_ssids']:
             # we must be connected to home wifi
+            self.log(f"saw {entity} become {new}, but not activating sleep for {person} because they're not connected to wifi")
             return
-        if self.get_state(cfg['charging']) not in ['charging', 'full']:
+        if self.get_state(cfg['charging']).lower() not in ['charging', 'full']:
             # we must be charging
+            self.log(f"saw {entity} become {new}, but not activating sleep for {person} because they're not charging")
             return
         self.turn_on(cfg['bed_tracker'])
-        all_asleep = True
+        self.persons_asleep[person] = True
+        self.log(f"sleep for {person} registered")
         for p in [k for k,v in self.persons_away.items() if v == False]:
             if not self.persons_asleep[p]:
-                all_asleep = False
-                break
-        if all_asleep: # everyone home is asleep now
-            self.turn_on(self.args['bed_tracker'])
+                self.log(f"{p} is not away and not asleep")
+                return
+        self.turn_on(self.args['bed_tracker'])
+        self.log(f"also, now everyone is asleep")

@@ -291,7 +291,7 @@ bedroom_far_light:
       delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_far
-  #debug: True
+  debug: True
 
 basic_thermostat:
   class: BasicThermostatController
@@ -342,11 +342,11 @@ in_bed_tracker:
       bed_tracker: input_boolean.aysylu_in_bed
   bed_tracker: input_boolean.dna_sleeping
   bed_presence: binary_sensor.someone_in_bed
-  evening: input_boolean.it_is_evening
   bedtime_start: '21:00:00'
   bedtime_end: '5:00:00'
   home_ssids:
     - 74ax4k
+    - internetofshxt
 
 evening_tracking:
   class: EveningTracker
