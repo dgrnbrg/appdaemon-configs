@@ -88,13 +88,11 @@ living_room_lights:
   triggers:
     - task:
       - input_boolean.dna_sleeping
-      - input_boolean.david_in_bed
       state: turned_off
     - task: input_boolean.watching_tv
       max_brightness: 30%
       transition: 8
     - presence:
-      - binary_sensor.main_floor_occupancy
       - device_tracker.david_iphone == home
       - device_tracker.aysylu_iphone == home
   adaptive_lighting: switch.adaptive_lighting_default
@@ -106,15 +104,16 @@ curio_light:
   triggers:
     - task:
       - input_boolean.dna_sleeping
-      - input_boolean.david_in_bed
       state: turned_off
     - presence:
       #- binary_sensor.main_floor_occupancy
       - device_tracker.david_iphone == home
       - device_tracker.aysylu_iphone == home
+      #- input_text.test_helper_text == sleep
       condition: input_boolean.it_is_evening
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.curio_lights
+  #debug: True
 
 dining_room_accent_light:
   class: LightController
@@ -122,7 +121,6 @@ dining_room_accent_light:
   triggers:
     - task:
       - input_boolean.dna_sleeping
-      - input_boolean.david_in_bed
       state: turned_off
     - task: input_boolean.watching_tv
       state: turned_off
@@ -157,9 +155,10 @@ david_office_lights:
   class: LightController
   module: lights
   triggers:
-   - presence:
-     - binary_sensor.david_office_occupancy
-     #- input_text.test_helper_text == home
+    - presence:
+      - binary_sensor.david_office_occupancy
+      #- input_text.test_helper_text == home
+      delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.david_office
 
@@ -167,8 +166,9 @@ aysylu_office_lights:
   class: LightController
   module: lights
   triggers:
-   - presence:
-     - binary_sensor.aysylu_office_occupancy
+    - presence:
+      - binary_sensor.aysylu_office_occupancy
+      delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.aysylu_office_ceiling
 
@@ -179,6 +179,7 @@ aysylu_office_lamp:
     - presence:
       - binary_sensor.aysylu_office_occupancy
       condition: input_boolean.it_is_evening
+      delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.aysylu_office_lamp
 
@@ -213,6 +214,7 @@ coffee_table_light:
       condition: input_boolean.it_is_evening
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.coffee_table
+  #debug: True
 
 kitchen_lights:
   class: LightController
@@ -221,7 +223,7 @@ kitchen_lights:
     - task:
       - input_boolean.dna_sleeping
       - input_boolean.david_in_bed
-      - input_text.test_helper_text == sleep
+      #- input_text.test_helper_text == sleep
       state: turned_off
     - presence:
       - binary_sensor.main_floor_occupancy
@@ -268,8 +270,10 @@ bedroom_near_light:
       max_brightness: 30%
     - presence:
       - binary_sensor.bedroom_occupancy
+      delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_near
+  #debug: True
 
 bedroom_far_light:
   class: LightController
@@ -284,8 +288,10 @@ bedroom_far_light:
       max_brightness: 1%
     - presence:
       - binary_sensor.bedroom_occupancy
+      delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_far
+  #debug: True
 
 basic_thermostat:
   class: BasicThermostatController
@@ -317,3 +323,34 @@ basic_thermostat:
     - device_tracker.david_iphone == home
     - device_tracker.aysylu_iphone == home
       #- input_boolean.test_helper
+
+in_bed_tracker:
+  class: BedStateManager
+  module: state_mgmt
+  wake_event: wake_up
+  away_distance: 60
+  iphones:
+    david:
+      ssid: sensor.davids_iphone_ssid
+      charging: sensor.davids_iphone_battery_state
+      distance: sensor.david_iphone_calc_distance
+      bed_tracker: input_boolean.david_in_bed
+    aysylu:
+      ssid: sensor.aysylu_iphone_ssid
+      charging: sensor.aysylu_iphone_battery_state
+      distance: sensor.aysylu_iphone_calc_distance
+      bed_tracker: input_boolean.aysylu_in_bed
+  bed_tracker: input_boolean.dna_sleeping
+  bed_presence: binary_sensor.someone_in_bed
+  evening: input_boolean.it_is_evening
+  bedtime_start: '21:00:00'
+  bedtime_end: '5:00:00'
+  home_ssids:
+    - 74ax4k
+
+evening_tracking:
+  class: EveningTracker
+  module: state_mgmt
+  tracker: input_boolean.it_is_evening
+  sunset_offset: 0
+  sunrise_offset: 0
