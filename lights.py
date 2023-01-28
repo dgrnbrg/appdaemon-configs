@@ -322,7 +322,10 @@ class LightController(hass.Hass):
                 state_repr = str(self.state)
                 if state_repr == 'manual_off':
                     state_repr = 'manual'
-                state_entity.set_state(state=state_repr, attributes={'old_state': old_state, 'active_triggers': [x['index'] for x in self.triggers if x['state'] == 'on'], 'internal_state': self.state})
+                attrs = {'old_state': old_state, 'active_triggers': [x['index'] for x in self.triggers if x['state'] == 'on'], 'internal_state': self.state}
+                if state_repr == 'manual':
+                    attrs['manual_activated'] = datetime.datetime.now()
+                state_entity.set_state(state=state_repr, attributes=attrs)
         # check each trigger to see if it's enabled.
         # also handle the delay functions
         if self.state == 'manual' or self.state == 'manual_off':
