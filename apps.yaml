@@ -1,4 +1,12 @@
 ---
+global_modules:
+  - global_user_id
+
+global_user_id:
+  class: GlobalUserInfo
+  module: lights
+  user_id: 5851a5ea934047d5943e66b3012ac053
+
 tracker:
   class: IrkTracker
   module: irk_tracker

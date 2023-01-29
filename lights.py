@@ -3,6 +3,10 @@ import adbase as ad
 import datetime
 import math
 
+class GlobalUserInfo(hass.Hass):
+    def initialize(self):
+        self.user_id = self.args['user_id']
+
 
 def parse_conditional_expr(cause):
     present_state = 'on'
@@ -50,6 +54,12 @@ class LightController(hass.Hass):
     @ad.app_lock
     def initialize(self):
         self.debug_enabled = self.args.get('debug', False)
+        # TODO this isn't working properly; it's not triggering restarts as I want
+        self.depends_on_module('global_user_id')
+        global_user_id_app = self.get_app('global_user_id')
+        self.user_id = global_user_id_app.user_id
+        if self.debug_enabled:
+            self.log(f"user id is {self.user_id}")
         self.light = self.args['light']
         self.light_name = self.light.split('.')[1] # drop the domain
         self.reautomate_button = f'button.reautomate_{self.light_name}'
@@ -136,6 +146,8 @@ class LightController(hass.Hass):
             guest_switch_ent.set_state(state='off', attributes={'friendly_name': f'Guest mode for {self.light}'})
         elif guest_switch_ent.get_state() == 'on':
             self.state = 'guest'
+        runtime = datetime.time(0, 0, 0)
+        self.run_minutely(self.update_light, runtime)
 
     @ad.app_lock
     def reset_manual(self, kwargs):
@@ -144,7 +156,7 @@ class LightController(hass.Hass):
             return
         if self.state == 'manual' or self.state == 'manual_off':
             self.state = 'returning'
-            self.update_light()
+            self.update_light({})
 
     @ad.app_lock
     def trigger_off(self, entity, attr, old, new, kwargs):
@@ -163,7 +175,7 @@ class LightController(hass.Hass):
         if all_presence_off or any_condition_off:
             trigger['state'] = 'off'
             if old_state != 'off':
-                self.update_light()
+                self.update_light({})
 
     @ad.app_lock
     def trigger_on(self, entity, attr, old, new, kwargs):
@@ -184,19 +196,19 @@ class LightController(hass.Hass):
             if self.debug_enabled:
                 self.log(f'trigger on for {self.light} because {entity} went on. any presence on={any_presence_on}. all conditions on={all_conditions_on}. prev={old_state}')
             if old_state != 'on':
-                self.update_light()
+                self.update_light({})
 
     @ad.app_lock
     def on_adaptive_lighting_brightness(self, entity, attribute, old, new, kwargs):
         self.do_update.add('bright')
         self.brightness = new
-        self.update_light()
+        self.update_light({})
 
     @ad.app_lock
     def on_adaptive_lighting_temp(self, entity, attribute, old, new, kwargs):
         self.do_update.add('temp')
         self.color_temp = new
-        self.update_light()
+        self.update_light({})
 
     def service_entity_matcher(self, target_id):
         def match(service_data):
@@ -215,6 +227,7 @@ class LightController(hass.Hass):
         if data['domain'] != 'light' and data['domain'] != 'button' and data['domain'] != 'input_boolean':
             return
         #print(f"service snooped {data}")
+        endogenous = data['metadata']['context']['user_id'] == self.user_id
         service_data = data['service_data']
         has = False
         if 'entity_id' in service_data:
@@ -225,7 +238,7 @@ class LightController(hass.Hass):
                 has = self.light == entity_id
         if data['domain'] == 'button' and data['service'] == 'press' and (entity_id == self.reautomate_button or entity_id == [self.reautomate_button]):
             self.state = 'returning'
-            self.update_light()
+            self.update_light({})
             self.log(f'reautomating {self.light}')
             return
         guest_switch = self.get_entity(self.guest_mode_switch)
@@ -243,14 +256,16 @@ class LightController(hass.Hass):
                 elif guest_switch.get_state() == 'off':
                     self.state = 'guest'
                     guest_switch.set_state(state='on')
-            self.update_light()
+            self.update_light({})
             return
         if guest_switch.get_state() == 'on':
             # we shouldn't do any of the manual control stuff
             if self.debug_enabled:
                 self.log(f"not handling manual overrides due to guest mode {self.light}")
             return
-        if has:
+        if has and not endogenous:
+            if self.debug_enabled:
+                self.log(f"got a matched event (endo={endogenous}), info: {event_name} {data} {kwargs}")
             # janky support for toggle
             if data['domain'] == 'light' and data['service'] == 'toggle':
                 cur_state = self.get_state(self.light)
@@ -271,7 +286,7 @@ class LightController(hass.Hass):
                     if delta > 5:
                         # probably was a manual override
                         self.state = 'manual'
-                        self.update_light()
+                        self.update_light({})
                     #self.log(f'saw a change in brightness. delta is {delta}. state is now {self.state}')
                 elif 'color_temp' in service_data:
                     new_color_temp = service_data['color_temp']
@@ -279,7 +294,7 @@ class LightController(hass.Hass):
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
-                        self.update_light()
+                        self.update_light({})
                     #self.log(f'saw a change in color temp. delta is {delta}. state is now {self.state}')
                 elif 'color_temp_kelvin' in service_data or 'kelvin' in service_data:
                     new_color_temp = service_data.get('kelvin', service_data.get('color_temp_kelvin'))
@@ -287,7 +302,7 @@ class LightController(hass.Hass):
                     if delta > 0.05:
                         # probably was a manual override
                         self.state = 'manual'
-                        self.update_light()
+                        self.update_light({})
                     #self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
                 else:
                     #self.log(f"saw {self.light} turn on without settings.")
@@ -297,7 +312,7 @@ class LightController(hass.Hass):
                     elif self.state == 'off' or isinstance(self.state, int) and self.triggers[self.state]['target_state'] == 'turned_off': # it turned on but it should be off
                         #self.log(f"saw an unexpected change to on, going to manual")
                         self.state = 'manual'
-                        self.update_light()
+                        self.update_light({})
             # check if we did a turn off, and 
             elif data['domain'] == 'light' and data['service'] == 'turn_off' :
                 #self.log(f"saw {self.light} turn off without settings (cur state = {self.state}).")
@@ -305,13 +320,13 @@ class LightController(hass.Hass):
                 if self.state != 'off' and isinstance(self.state, int) and self.triggers[self.state]['target_state'] != 'turned_off':
                     #self.log(f"saw an unexpected change to off, going to manual")
                     self.state = 'manual_off'
-                    self.update_light()
+                    self.update_light({})
                 elif self.state == 'manual': # does turning off mean we return to auto?
                     #self.log(f"from off: Returning to automatic {service_data}.")
                     self.state = 'returning'
-                    self.update_light()
+                    self.update_light({})
 
-    def update_light(self):
+    def update_light(self, kwargs):
         if len(self.do_update) != 2:
             return
         def update_stored_state():
