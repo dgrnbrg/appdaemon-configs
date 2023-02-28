@@ -293,6 +293,8 @@ class IrkTracker(hass.Hass):
                     #self.log(f"  next room = {next_room}")
                     if next_room in alias['secondary_clarifiers']:
                         return next_room
+                    elif 'default' in alias:
+                        return alias['default']
                     else:
                         return None
                 else: # no data for 2ndary classifier b/c it's the last one

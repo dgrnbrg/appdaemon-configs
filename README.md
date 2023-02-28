@@ -95,6 +95,7 @@ You can probably use the tracker configuration in apps.yaml without many changes
 You'll need to set up your room aliases, which map ESP32 devices to the room they belong to.
 If you notice that a device is read equally from multiple rooms, use the `secondary_clarifiers`, and then the next-most strong signal will disambiguate.
 This may require you to add more ESP32s to rooms for clarifying purposes.
+You can still include a `default` with the `secondary_clarifiers`, so that localization defaults to that room rather than `unknown`.
 
 Other settings aren't likely to need to change.
 
