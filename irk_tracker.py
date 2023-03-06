@@ -1,4 +1,5 @@
 import hassapi as hass
+import base64
 import adbase as ad
 from collections import defaultdict
 import pandas as pd
@@ -37,8 +38,11 @@ class IrkTracker(hass.Hass):
         self.identities = {x['device_name']: x for x in self.args['identities']}
         self.ciphers = {}
         people = set(x['person'] for x in self.args['identities'])
+        irk_prefilters = [] # will be a list of base64 encoded IRKs
         for identity, data in self.identities.items():
-            self.ciphers[identity] = AES.new(bytearray.fromhex(data['irk']), AES.MODE_ECB)
+            byte_form = bytearray.fromhex(data['irk'])
+            irk_prefilters.append(base64.b64encode(byte_form).decode("ascii"))
+            self.ciphers[identity] = AES.new(byte_form, AES.MODE_ECB)
             device_clean_name = identity.replace(" ", "_")
             device_ent = self.get_entity(f'device_tracker.{device_clean_name}_irk')
             if device_ent.exists():
@@ -82,6 +86,7 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.recent_observations = defaultdict(lambda: [])
+        self.get_entity('sensor.irk_prefilter').set_state(state=':'.join(irk_prefilters))
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
