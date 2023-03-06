@@ -1,0 +1,147 @@
+substitutions:
+  ld2410_id: 'ld2410_id'
+  ld2410_name: ""
+  sensor_throttle: '500ms'
+  binary_sensor_debounce: '250ms'
+
+ble_client:
+  - mac_address: ${mac_address}
+    id: ${ld2410_id}
+    on_disconnect:
+      then:
+      - lambda: |-
+          ESP_LOGD("${ld2410_id}_connect", "disconnecting... :(");
+    on_connect:
+      then:
+      - lambda: |-
+          ESP_LOGD("${ld2410_id}_connect", "connecting!");
+      - delay: 1000ms
+      - ble_client.ble_write:
+          id: ${ld2410_id}
+          service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+          characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+          value: [
+            0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00, #preamble
+            0x48, 0x69, 0x4c, 0x69, 0x6e, 0x6b, # default password HiLink
+            0x04, 0x03, 0x02, 0x01] #postamble
+      - delay: 100ms
+      - ble_client.ble_write:
+          id: ${ld2410_id}
+          service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+          characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+          # enable config
+          value: [0xfd, 0xfc, 0xfb, 0xfa, 0x04, 0x00, 0xff, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01]
+      - delay: 100ms
+      - ble_client.ble_write:
+          id: ${ld2410_id}
+          service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+          characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+          # enable engineering mode
+          value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00b, 0x00, 0x04, 0x03, 0x02, 0x01]
+      - delay: 100ms
+      - ble_client.ble_write:
+          id: ${ld2410_id}
+          service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+          characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+          # diable config
+          value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0xfe, 0x00, 0x04, 0x03, 0x02, 0x01]
+      - delay: 100ms
+
+binary_sensor:
+  - platform: template
+    name: "${ld2410_name}Motion Detected"
+    id: ${ld2410_id}_motion_detected
+    device_class: motion
+    filters:
+    - delayed_on_off: ${binary_sensor_debounce}
+  - platform: template
+    name: "${ld2410_name}Occupancy Detected"
+    id: ${ld2410_id}_occupancy_detected
+    device_class: occupancy
+    filters:
+    - delayed_on_off: ${binary_sensor_debounce}
+
+sensor:    
+  - platform: template
+    name: "${ld2410_name}Motion Distance"
+    id: ${ld2410_id}_motion_distance
+    update_interval: never
+    device_class: distance
+    unit_of_measurement: "cm"
+    filters:
+    - throttle: ${sensor_throttle}
+  - platform: template
+    name: "${ld2410_name}Static Distance"
+    id: ${ld2410_id}_static_distance
+    update_interval: never
+    device_class: distance
+    unit_of_measurement: "cm"
+    filters:
+    - throttle: ${sensor_throttle}
+  - platform: template
+    name: "${ld2410_name}Static Energy"
+    id: ${ld2410_id}_static_energy
+    update_interval: never
+    unit_of_measurement: "%"
+    filters:
+    - throttle: ${sensor_throttle}
+  - platform: template
+    name: "${ld2410_name}Moving Energy"
+    id: ${ld2410_id}_moving_energy
+    update_interval: never
+    unit_of_measurement: "%"
+    filters:
+    - throttle: ${sensor_throttle}
+  - platform: template
+    name: "${ld2410_name}Detection Distance"
+    id: ${ld2410_id}_detection_distance
+    update_interval: never
+    device_class: distance
+    unit_of_measurement: "cm"
+    filters:
+    - throttle: ${sensor_throttle}
+  - platform: ble_client
+    type: characteristic
+    ble_client_id: ${ld2410_id}
+    service_uuid: '0000fff0-0000-1000-8000-00805f9b34fb'
+    characteristic_uuid: '0000fff1-0000-1000-8000-00805f9b34fb'
+    update_interval: never
+    notify: True
+    internal: True
+    filters:
+    - throttle: ${sensor_throttle}
+    id: ${ld2410_id}_internal_parser
+    lambda: |-
+      if (x[0] != 0xf4 || x[1] != 0xf3 || x[2] != 0xf2 || x[3] != 0xf1) {
+        return NAN;
+      }
+      boolean moving = x[8] & 0x1;
+      boolean stationary = x[8] & 0x2;
+      float detect_distance = x[15];
+      detect_distance += x[16] << 8;
+      float static_distance = x[12];
+      static_distance += x[13] << 8;
+      float motion_distance = x[9];
+      motion_distance += x[10] << 8;
+      float static_energy = x[14];
+      float motion_energy = x[11];
+      // if (!stationary) {
+      //   static_distance = NAN;
+      //   static_energy = NAN;
+      // }
+      // if (!moving) {
+      //   motion_distance = NAN;
+      //   motion_energy = NAN;
+      // }
+      if (!moving && !stationary) {
+        detect_distance = NAN;
+      }
+      id(${ld2410_id}_motion_detected).publish_state(moving);
+      id(${ld2410_id}_occupancy_detected).publish_state(stationary);
+
+      id(${ld2410_id}_static_distance).publish_state(static_distance);
+      id(${ld2410_id}_motion_distance).publish_state(motion_distance);
+      id(${ld2410_id}_static_energy).publish_state(motion_energy);
+      id(${ld2410_id}_moving_energy).publish_state(static_energy);
+      id(${ld2410_id}_detection_distance).publish_state(detect_distance);
+      return NAN;
