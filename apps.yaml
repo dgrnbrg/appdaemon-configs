@@ -367,3 +367,4 @@ evening_tracking:
 lirr_fetcher:
   class: LirrFetcher
   module: lirr_fetcher
+  max_lookback_mins: 45
