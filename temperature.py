@@ -152,6 +152,7 @@ class BasicThermostatController(hass.Hass):
             else:
                 self.listen_state(self.did_leave, entity, present_state=present_state, immediate=True)
         self.determine_if_warm_or_cool_day({})
+        self.next_target = 0 # used for climb heat mode
 
     @ad.app_lock
     def did_arrive(self, entity, attr, old, new, kwargs):
@@ -192,10 +193,10 @@ class BasicThermostatController(hass.Hass):
             if thermostat_state['state'] == 'heat' and current_temperature + self.max_diff_for_heat_pump < target_temp:
                 # we are going to go into the climbing mode
                 self.climb_target = target_temp
-                first_temp = current_temperature + self.max_diff_for_heat_pump
-                self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = first_temp)
+                self.next_target = current_temperature + self.max_diff_for_heat_pump
+                self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.next_target)
                 self.climb_target_handle = self.listen_state(self.climb_heat_callback, self.thermostat, attribute='current_temperature')
-                self.log(f"Climbing heat up to {target_temp}, initially setting to {first_temp}")
+                self.log(f"Climbing heat up to {target_temp}, initially setting to {self.next_target}")
             else:
                 self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
                 self.log(f"Updated temp since we're home to {target_temp}")
@@ -219,13 +220,16 @@ class BasicThermostatController(hass.Hass):
 
     @ad.app_lock
     def climb_heat_callback(self, entity, attr, old, new, kwargs):
-        next_target = min(self.climb_target, new + self.max_diff_for_heat_pump)
-        self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = next_target)
-        if next_target >= self.climb_target:
+        if new != self.next_target:
             self.cancel_climb_heat_mode()
-            self.log(f"Finished climbing heat up to {target_temp}, since we reached {new}")
+            self.log(f"Aborting climb heat mode because it appears that the temperature has been changed to {new}, while the last automatic climb setting was {self.next_target}")
+        self.next_target = min(self.climb_target, new + self.max_diff_for_heat_pump)
+        self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.next_target)
+        if self.next_target >= self.climb_target:
+            self.cancel_climb_heat_mode()
+            self.log(f"Finished climbing heat up to {self.climb_target}, since we reached {new}")
         else:
-            self.log(f"Climbing heat up to {target_temp}, since we reached {new} we're bumping to {next_target}")
+            self.log(f"Climbing heat up to {self.climb_target}, since we reached {new} we're bumping to {self.next_target}")
 
     @ad.app_lock
     def determine_if_warm_or_cool_day(self, kwargs):
