@@ -20,6 +20,17 @@ class IrkTracker(hass.Hass):
     def initialize(self):
         self.known_addr_cache = {}
         self.room_aliases = self.args.get('room_aliases', {})
+        for room, alias in self.room_aliases.items():
+            if 'secondary_clarifiers' in alias:
+                clarifiers = {}
+                for c in alias['secondary_clarifiers']:
+                    if isinstance(c, str):
+                        clarifiers[c] = c
+                    else: # support resolving to an alternative room (e.g. when between floors)
+                        k,v = list(c.items())[0]
+                        clarifiers[k] = v
+                alias['secondary_clarifiers'] = clarifiers
+        self.log(f"processed room aliases: {self.room_aliases}")
         self.valid_rooms = set()
         self.device_in_room = defaultdict(lambda: 'unknown')
         self.active_device_by_person = defaultdict(lambda: 'unknown')
@@ -34,10 +45,14 @@ class IrkTracker(hass.Hass):
         for room in self.room_aliases.values():
             if isinstance(room, str):
                 self.valid_rooms.add(room)
-            # TODO include rooms from other alias types
+            elif 'default' in room:
+                self.valid_rooms.add(room['default'])
+            elif 'secondary_clarifiers' in room:
+                for r in room['secondary_clarifiers'].values():
+                    self.valid_rooms.add(r)
         self.identities = {x['device_name']: x for x in self.args['identities']}
         self.ciphers = {}
-        people = set(x['person'] for x in self.args['identities'])
+        self.people = set(x['person'] for x in self.args['identities'])
         irk_prefilters = [] # will be a list of base64 encoded IRKs
         for identity, data in self.identities.items():
             byte_form = bytearray.fromhex(data['irk'])
@@ -71,13 +86,18 @@ class IrkTracker(hass.Hass):
             self.log("model fit")
         else:
             self.knn = None
+        self.fused_trackers = {}
         for cfg in self.args['away_trackers']:
             #self.log(f"configuring away tracker {cfg}")
             person = cfg['person']
             tracker = cfg['tracker']
             self.away_tracker_state[person] = 'home' if self.get_state(tracker) == 'home' else 'away'
+            fused_tracker = cfg['home_focused_tracker']
+            self.fused_trackers[person] = fused_tracker
             self.listen_state(self.away_tracker_cb, tracker, person=person)
-        for person in people:
+            fused_tracker = self.get_entity(fused_tracker)
+            fused_tracker.set_state(state=self.away_tracker_state[person])
+        for person in self.people:
             person_ent = self.get_entity(f'device_tracker.{person}_irk')
             init_state = self.away_tracker_state.get(person, 'unknown')
             person_ent.set_state(state=init_state, attributes={'from_device': 'init'})
@@ -87,6 +107,7 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.recent_observations = defaultdict(lambda: [])
         self.get_entity('sensor.irk_prefilter').set_state(state=':'.join(irk_prefilters))
+        self.init_time = datetime.now()
 
     def flush_recording(self):
         df = pd.DataFrame(self.recording_df)
@@ -116,6 +137,19 @@ class IrkTracker(hass.Hass):
             self.recording_df = None
 
     @ad.app_lock
+    def pullout_sensor(self, entity, attr, old, new, kwargs):
+        self.log(f"pullout: {entity} went from {old} to {new}")
+        nearest_beacons = kwargs['nearest_beacons']
+        for person in self.people:
+            active_device = self.active_device_by_person[person]
+            device_ent = self.get_entity(f'device_tracker.{active_device.replace(" ", "_")}_irk')
+            weighted_votes = device_ent.get_state(attribute='weighted_votes')
+            self.log(f"pullout for {person}: weighted votes are {weighted_votes}")
+            if weighted_votes[0][2] in nearest_beacons:
+                fused_tracker = self.get_entity(self.fused_trackers[person])
+                fused_tracker.set_state(state='just_left')
+
+    @ad.app_lock
     def away_tracker_cb(self, entity, attr, old, new, kwargs):
         person = kwargs['person']
         self.log(f"running away tracker cb for person = {person} state = {new} entity = {entity}")
@@ -128,6 +162,8 @@ class IrkTracker(hass.Hass):
             self.away_tracker_state[person] = 'away'
             person_ent = self.get_entity(f'device_tracker.{person}_irk')
             person_ent.set_state(state='away', attributes={'from_device': entity})
+            fused_tracker = self.get_entity(self.fused_trackers[person])
+            fused_tracker.set_state(state='away')
         else:
             self.log(f"arrived home, acknowledging in {self.args['away_tracker_arrival_delay_secs']}")
             cb_token = self.run_in(self.arrived_home, person=person, delay=self.args['away_tracker_arrival_delay_secs'])
@@ -135,8 +171,11 @@ class IrkTracker(hass.Hass):
 
     @ad.app_lock
     def arrived_home(self, kwargs):
-        self.log(f"registering that {kwargs['person']} arrived home (after delay)")
-        self.away_tracker_state[kwargs['person']] = 'home'
+        person = kwargs['person']
+        self.log(f"registering that {person} arrived home (after delay)")
+        self.away_tracker_state[person] = 'home'
+        fused_tracker = self.get_entity(self.fused_trackers[person])
+        fused_tracker.set_state(state='home')
 
     @ad.app_lock
     def make_primary_cb(self, event_name, data, kwargs):
@@ -188,6 +227,13 @@ class IrkTracker(hass.Hass):
         obs = self.recent_observations[(source,matched_device)]
         #if source in self.rssi_adjustments:
         #    self.log(f"Adjusting rssi for {source} from {rssi} to {rssi + self.rssi_adjustments.get(source,0)}")
+        # If this is the first observation for this device, this means that the owner just arrived home, so we should update the fused tracker
+        # Unless this is within 30 seconds of the initialization of the component, in which case ignore it
+        if len(obs) == 0 and (time - self.init_time).total_seconds() > 30:
+            device_person = self.identities[device]['person']
+            self.fused_trackers[person] = fused_tracker
+            fused_tracker = self.get_entity(self.fused_trackers[device_person])
+            fused_tracker.set_state(state='just_arrived')
         obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
         self.tracking_resolve(matched_device)
         if matched_device in self.expiry_timers:
@@ -201,6 +247,9 @@ class IrkTracker(hass.Hass):
         del self.expiry_timers[device]
         self.tracking_resolve(device)
 
+    # TODO expose the away tracking state, and add 4 states (just arrived, just left, home, away) for driving automation
+    # TODO just arrived should be cued when we get our first new notification from the active device w/o observations
+    # TODO just left should be cued from a trigger input + active device being in a specific room, or from GPS marking away
     def tracking_resolve(self, device, force_update=False):
         room_votes = defaultdict(lambda: [])
         total_votes = 0
@@ -274,36 +323,34 @@ class IrkTracker(hass.Hass):
 
     def resolve_room(self, weighted_votes, device):
         rooms = []
-        def resolve_inner(source, i):
+        def resolve_inner(source, i, recur=True):
             alias = self.room_aliases[source]
             if isinstance(alias, str): # direct mapping
                 return alias
             elif 'secondary_clarifiers' in alias:
-                if i != 0 and i < (len(weighted_votes) + 1):
-                    try:
-                        _,_,next_source = weighted_votes[i-1]
-                    except:
-                        self.log(f"for {device} resolving inner for {source} at {i}, next will have index {i-1} and weighted_votes len={len(weighted_votes)}, weighted_votes={weighted_votes}")
-                        raise
-                    #self.log(f"for {device} resolving inner for {source} at {i}, next is {next_source} at {i-1}")
-                    next_room = resolve_inner(next_source, i+1)
-                    if next_room in alias['secondary_clarifiers']:
-                        return next_room
+                if i == 0:
+                    next_index = 1
+                else:
+                    next_index = i-1 # preceding
+                #self.log(f"for {device} resolving inner for {source} at 0, next is {next_source} at {next_index}")
+                _,_,next_source = weighted_votes[next_index]
+                clarifiers = alias['secondary_clarifiers']
+                if next_source in clarifiers: # handle case resolving by device
+                    return clarifiers[next_source]
+                try:
+                    if recur:
+                        next_room = resolve_inner(next_source, next_index, recur=i != 0)
                     else:
-                        return None
-                if len(weighted_votes) >= 2: # i == 0
-                    _,_,next_source = weighted_votes[1]
-                    #self.log(f"for {device} resolving inner for {source} at 0, next is {next_source} at 1")
-                    next_room = resolve_inner(next_source, 1)
-                    #self.log(f"  next room = {next_room}")
-                    if next_room in alias['secondary_clarifiers']:
-                        return next_room
-                    elif 'default' in alias:
-                        return alias['default']
-                    else:
-                        return None
-                else: # no data for 2ndary classifier b/c it's the last one
-                    return None
+                        next_room = next_source
+                except:
+                    self.log(f"for {device} resolving inner for {source} at {i}, next is {next_source} will have index {next_index} and weighted_votes len={len(weighted_votes)}, weighted_votes={weighted_votes}")
+                    raise
+                if next_room in clarifiers: # handle case resolving by room
+                    return clarifiers[next_room]
+                if 'default' in alias:
+                    return alias['default']
+                # no data for 2ndary classifier b/c it's the last one
+                return None
             else:
                 raise ValueError(f'invalid alias config: {alias}')
         for i, (rssi, count, source) in enumerate(weighted_votes):
