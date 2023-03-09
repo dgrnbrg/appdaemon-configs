@@ -24,6 +24,16 @@ def parse_conditional_expr(cause):
         entity = xs[0]
         present_state = None
         absent_state = xs[1]
+    elif ' not in ' in cause:
+        xs = [x.strip() for x in cause.split(' not in ')]
+        entity = xs[0]
+        present_state = None
+        absent_state = [x.strip() for x in xs[1].strip('[]').split(',')]
+    elif ' in ' in cause:
+        xs = [x.strip() for x in cause.split(' in ')]
+        entity = xs[0]
+        present_state = [x.strip() for x in xs[1].strip('[]').split(',')]
+        absent_state = None
     return present_state, absent_state, entity
 
 class LightController(hass.Hass):
@@ -51,6 +61,48 @@ class LightController(hass.Hass):
     presence is used for whether something is being done, such as being in a space, sleeping, or doing an activity
     condition is used to validate that it's an appropriate time, such as whether it's dark out
     """
+
+    def setup_listen_state(self, cb, present_state, absent_state, entity, **kwargs):
+        cur_state = self.get_state(entity)
+        def delegate(_):
+            cb(entity, 'state', None, cur_state, kwargs)
+        if present_state:
+            if isinstance(present_state, list):
+                if self.debug_enabled:
+                    self.log(f"present {entity} in {present_state} for {cb}")
+                def present_check(n):
+                    if self.debug_enabled:
+                        self.log(f"present {entity} in {present_state} for {cb} checking = {n in present_state}")
+                    return n in present_state
+                self.listen_state(cb, entity, new=present_check, **kwargs)
+                if kwargs.get('immediate') and present_check(cur_state):
+                    self.run_in(delegate, 0)
+            else:
+                if self.debug_enabled:
+                    self.log(f"present {entity} = {present_state} for {cb}")
+                self.listen_state(cb, entity, new=present_state, **kwargs)
+        else:
+            if isinstance(absent_state, list):
+                if self.debug_enabled:
+                    self.log(f"absent {entity} not in {absent_state} for {cb}")
+                def absent_check(n):
+                    return n not in absent_state
+                self.listen_state(cb, entity, new=absent_check, **kwargs)
+                if kwargs.get('immediate') and absent_check(cur_state):
+                    def delegate(_):
+                        cb(entity, 'state', None, cur_state, kwargs)
+                    self.run_in(delegate, 0)
+            else:
+                if self.debug_enabled:
+                    self.log(f"absent {entity} != {absent_state} for {cb}")
+                def absent_check(n):
+                    return n != absent_state
+                self.listen_state(cb, entity, new=absent_check, **kwargs)
+                if kwargs.get('immediate') and absent_check(cur_state):
+                    def delegate(_):
+                        cb(entity, 'state', None, cur_state, kwargs)
+                    self.run_in(delegate, 0)
+
     @ad.app_lock
     def initialize(self):
         self.debug_enabled = self.args.get('debug', False)
@@ -111,27 +163,13 @@ class LightController(hass.Hass):
                         duration = t.get('delay_on', 0)
                     else:
                         duration = 0
-                    if present_state:
-                        if self.debug_enabled:
-                            self.log(f"setting up a positive turn_on [index={i}, cause={entity}], present_state = {present_state}")
-                        self.listen_state(self.trigger_on, entity, new=present_state, duration=duration, trigger=i, immediate=True)
-                    else:
-                        if self.debug_enabled:
-                            self.log(f"setting up a negative turn_on [index={i}, cause={entity}], absent_state = {absent_state}")
-                        self.listen_state(self.trigger_on, entity, new=lambda n, absent_state=absent_state: n != absent_state, duration=duration, trigger=i, immediate=True)
+                    self.setup_listen_state(cb=self.trigger_on, entity=entity, present_state=present_state, absent_state=absent_state, duration=duration, trigger=i, immediate=True)
                 if t.get('turns_off', True):
                     if entity in pes:
                         duration = t.get('delay_off', 0)
                     else:
                         duration = 0
-                    if absent_state:
-                        if self.debug_enabled:
-                            self.log(f"setting up a positive turn_off [index={i}, cause={entity}], absent_state = {absent_state}")
-                        self.listen_state(self.trigger_off, entity, new=absent_state, duration=duration, trigger=i, immediate=True)
-                    else:
-                        if self.debug_enabled:
-                            self.log(f"setting up a negative turn_off [index={i}, cause={entity}], present_state = {present_state}")
-                        self.listen_state(self.trigger_off, entity, new=lambda n, present_state=present_state: n != present_state, duration=duration, trigger=i, immediate=True)
+                    self.setup_listen_state(cb=self.trigger_off, entity=entity, present_state=absent_state, absent_state=present_state, duration=duration, trigger=i, immediate=True)
             self.triggers.append(trigger)
         self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_kelvin', immediate=True)
         self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)

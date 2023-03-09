@@ -17,15 +17,28 @@ def parse_conditional_expr(cause):
     entity = cause
     if '==' in cause:
         xs = [x.strip() for x in cause.split('==')]
+        #print(f"parsing a state override light trigger {xs}")
         entity = xs[0]
         present_state = xs[1]
         absent_state = None
     elif '!=' in cause:
         xs = [x.strip() for x in cause.split('!=')]
+        #print(f"parsing a negative state override light trigger")
         entity = xs[0]
         present_state = None
         absent_state = xs[1]
+    elif ' not in ' in cause:
+        xs = [x.strip() for x in cause.split(' not in ')]
+        entity = xs[0]
+        present_state = None
+        absent_state = [x.strip() for x in xs[1].strip('[]').split(',')]
+    elif ' in ' in cause:
+        xs = [x.strip() for x in cause.split(' in ')]
+        entity = xs[0]
+        present_state = [x.strip() for x in xs[1].strip('[]').split(',')]
+        absent_state = None
     return present_state, absent_state, entity
+
 
 def get_sensor_data(entity_id, column, start='-7d'):
     id_parts = entity_id.split('.')
@@ -143,31 +156,61 @@ class BasicThermostatController(hass.Hass):
         if len(self.people) != len(self.presence):
             raise ValueError(f'Each tracked entity can only appear once: {self.presence}')
         for present_state, absent_state, entity in self.presence:
-            if present_state:
-                self.listen_state(self.did_arrive, entity, new=present_state, immediate=True)
-            else:
-                self.listen_state(self.did_arrive, entity, absent_state=absent_state, immediate=True)
-            if absent_state:
-                self.listen_state(self.did_leave, entity, new=absent_state, immediate=True)
-            else:
-                self.listen_state(self.did_leave, entity, present_state=present_state, immediate=True)
+            self.setup_listen_state(cb=self.did_arrive, entity=entity, present_state=present_state, absent_state=absent_state, immediate=True)
+            self.setup_listen_state(cb=self.did_leave, entity=entity, present_state=absent_state, absent_state=present_state, immediate=True)
         self.determine_if_warm_or_cool_day({})
         self.next_target = 0 # used for climb heat mode
+        self.debug_enabled = self.args.get('debug_enabled', False)
+
+    def setup_listen_state(self, cb, present_state, absent_state, entity, **kwargs):
+        cur_state = self.get_state(entity)
+        def delegate(_):
+            cb(entity, 'state', None, cur_state, kwargs)
+        if present_state:
+            if isinstance(present_state, list):
+                if self.debug_enabled:
+                    self.log(f"present {entity} in {present_state} for {cb}")
+                def present_check(n):
+                    if self.debug_enabled:
+                        self.log(f"present {entity} in {present_state} for {cb} checking = {n in present_state}")
+                    return n in present_state
+                self.listen_state(cb, entity, new=present_check, **kwargs)
+                if kwargs.get('immediate') and present_check(cur_state):
+                    self.run_in(delegate, 0)
+            else:
+                if self.debug_enabled:
+                    self.log(f"present {entity} = {present_state} for {cb}")
+                self.listen_state(cb, entity, new=present_state, **kwargs)
+        else:
+            if isinstance(absent_state, list):
+                if self.debug_enabled:
+                    self.log(f"absent {entity} not in {absent_state} for {cb}")
+                def absent_check(n):
+                    return n not in absent_state
+                self.listen_state(cb, entity, new=absent_check, **kwargs)
+                if kwargs.get('immediate') and absent_check(cur_state):
+                    def delegate(_):
+                        cb(entity, 'state', None, cur_state, kwargs)
+                    self.run_in(delegate, 0)
+            else:
+                if self.debug_enabled:
+                    self.log(f"absent {entity} != {absent_state} for {cb}")
+                def absent_check(n):
+                    return n != absent_state
+                self.listen_state(cb, entity, new=absent_check, **kwargs)
+                if kwargs.get('immediate') and absent_check(cur_state):
+                    def delegate(_):
+                        cb(entity, 'state', None, cur_state, kwargs)
+                    self.run_in(delegate, 0)
 
     @ad.app_lock
     def did_arrive(self, entity, attr, old, new, kwargs):
-        if 'absent_state' in kwargs:
-            if new == kwargs['absent_state']:
-                return
         self.log(f"did arrive {entity} {attr} {old} {new} {kwargs}")
         self.people[entity] = 'home'
         self.update_temp_by_presence()
 
     @ad.app_lock
     def did_leave(self, entity, attr, old, new, kwargs):
-        if 'present_state' in kwargs:
-            if new == kwargs['present_state']:
-                return
         self.log(f"did leave {entity} {attr} {old} {new} {kwargs}")
         self.people[entity] = 'away'
         self.update_temp_by_presence()
