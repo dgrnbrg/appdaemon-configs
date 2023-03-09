@@ -1,42 +1,55 @@
 substitutions:
   irk_prefilter_entity: sensor.irk_prefilter
+  irk_source: ${device_name}
 
 esphome:
   includes:
     - irk_resolver.h
+
+bluetooth_proxy:
 
 esp32_ble_tracker:
   on_ble_advertise:
   - then:
     - if:
         condition:
-          lambda: |-
-            uint8_t addr[6];
-            for (int i = 0; i < irk_prefilters.size(); i++) {
-              auto& irk_vec = irk_prefilters[i];
-              uint8_t* irk = irk_vec.data();
-              auto addr64 = x.address_uint64();
-              addr[5] = (addr64 >> 40) & 0xff;
-              addr[4] = (addr64 >> 32) & 0xff;
-              addr[3] = (addr64 >> 24) & 0xff;
-              addr[2] = (addr64 >> 16) & 0xff;
-              addr[1] = (addr64 >> 8) & 0xff;
-              addr[0] = (addr64) & 0xff;
-              if (ble_ll_resolv_rpa((const uint8_t *)addr, irk)) {
-                ESP_LOGD("local_irk", "Resolved idx %d", i);
-                return true;
-              }
-            }
-            return false;
+          or:
+            - switch.is_on: skip_irk_prefilter
+            - lambda: |-
+                uint8_t addr[6];
+                for (int i = 0; i < irk_prefilters.size(); i++) {
+                  auto& irk_vec = irk_prefilters[i];
+                  uint8_t* irk = irk_vec.data();
+                  auto addr64 = x.address_uint64();
+                  addr[5] = (addr64 >> 40) & 0xff;
+                  addr[4] = (addr64 >> 32) & 0xff;
+                  addr[3] = (addr64 >> 24) & 0xff;
+                  addr[2] = (addr64 >> 16) & 0xff;
+                  addr[1] = (addr64 >> 8) & 0xff;
+                  addr[0] = (addr64) & 0xff;
+                  if (ble_ll_resolv_rpa((const uint8_t *)addr, irk)) {
+                    ESP_LOGD("local_irk", "Resolved idx %d", i);
+                    return true;
+                  }
+                }
+                return false;
         then:
           - homeassistant.event:
               event: esphome.ble_tracking_beacon
               data:
-                source: ${device_name}
+                source: ${irk_source}
                 rssi: !lambda |-
                   return x.get_rssi();
                 addr: !lambda |-
                   return x.address_str();
+
+switch:
+  - platform: template
+    name: Skip IRK prefiltering
+    id: skip_irk_prefilter
+    restore_state: true
+    optimistic: true
+    entity_category: config
 
 text_sensor:
   - platform: homeassistant
