@@ -10,10 +10,12 @@ ble_client:
     on_disconnect:
       then:
       - lambda: |-
+          id(${ld2410_id}_ble_connected).publish_state(false);
           ESP_LOGD("${ld2410_id}_connect", "disconnecting... :(");
     on_connect:
       then:
       - lambda: |-
+          id(${ld2410_id}_ble_connected).publish_state(true);
           ESP_LOGD("${ld2410_id}_connect", "connecting!");
       - delay: 1000ms
       - ble_client.ble_write:
@@ -60,6 +62,9 @@ binary_sensor:
     device_class: occupancy
     filters:
     - delayed_on_off: ${binary_sensor_debounce}
+  - platform: template
+    name: "${ld2410_name}LD2410 Connected"
+    id: ${ld2410_id}_ble_connected
 
 sensor:    
   - platform: template
