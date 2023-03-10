@@ -9,6 +9,9 @@ This repository contains systems for a few nice things:
 This code implements the cryptographic identification algorithm, plus some nifty signal processing, to get a pretty reliable indicator of which room a device is in.
 Then, it links multiple devices & a GPS-based device tracker together, to determine which room a person is in, or whether they've left the building.
 It combines multiple devices by assuming that the most recently moved device is being carried, while stationary devices may have been left behind.
+It also fuses data from GPS tracking, BLE passive scans, and door/garage sensors to create better signals for arrival & leaving, even when the GPS tracker breaks.
+
+**Note** You'll need to use AppDaemon from the `dev` branch, because AppDaemon/appdaemon#1626 hasn't been release to the home assistant addon yet.
 
 ## Ideas for Use cases
 
@@ -26,6 +29,14 @@ Here's an example of a tab redirect configuration that I use (I repeat this for 
 type: custom:tab-redirect-card
 redirect:
   - user: David
+    entity_id: device_tracker.david_fused
+    entity_state: away
+    redirect_to_tab_index: 4
+  - user: David
+    entity_id: device_tracker.david_fused
+    entity_state: just_left
+    redirect_to_tab_index: 4
+  - user: David
     entity_id: device_tracker.david_irk
     entity_state: main-floor
     redirect_to_tab_index: 1
@@ -37,10 +48,6 @@ redirect:
     entity_id: device_tracker.david_irk
     entity_state: downstairs
     redirect_to_tab_index: 3
-  - user: David
-    entity_id: device_tracker.david_irk
-    entity_state: away
-    redirect_to_tab_index: 4
   - user: Person2
     entity_id: device_tracker.person2_irk
     entity_state: main-floor
@@ -51,37 +58,62 @@ redirect:
 ### Status viewing
 
 I use `multiple-entity-row` to show the current tracker status.
+This type of configuration allows you to see the states of all the underlying & sensor-fused trackers.
 I also configure a tap action for the devices so that I can override the automatic device detection, since sometimes an RF glitch can make the system think that you're with the wrong device.
 
 ```
-type: entities
-title: People
-entities:
-  - entity: device_tracker.david_irk
-    type: custom:multiple-entity-row
-    name: David IRK
-    state_header: Person
-    secondary_info:
-      attribute: last-updated
-      name: false
+type: vertical-stack
+cards:
+  - type: entities
+    title: People
     entities:
-      - entity: device_tracker.david_phone_irk
-        name: Phone
+      - entity: device_tracker.david_irk
+        type: custom:multiple-entity-row
+        name: David IRK
+        state_header: Person
+        secondary_info:
+          attribute: last-updated
+          name: false
+        entities:
+          - entity: device_tracker.david_phone_irk
+            name: Phone
+            tap_action:
+              action: call-service
+              service: button.press
+              service_data:
+                entity_id: button.irk_tracker_make_primary_david_david_phone
+          - entity: device_tracker.david_watch_irk
+            name: Watch
+            tap_action:
+              action: call-service
+              service: button.press
+              service_data:
+                entity_id: button.irk_tracker_make_primary_david_david_watch
+      - entity: device_tracker.david_iphone
+        name: David Tracker
+        icon: mdi:human
+        type: custom:multiple-entity-row
+        state_header: iCloud3
+        secondary_info:
+          attribute: last-updated
+          name: false
+        entities:
+          - entity: device_tracker.david_fused
+            name: Fused
+  - type: horizontal-stack
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: button.irk_tracker_make_primary_david_david_phone
+        secondary_info: none
+        name: David phone primary
         tap_action:
-          action: call-service
-          service: button.press
-          service_data:
-            entity_id: button.irk_tracker_make_primary_david_david_phone
-      - entity: device_tracker.david_watch_irk
-        name: Watch
+          action: toggle
+      - type: custom:mushroom-entity-card
+        entity: button.irk_tracker_make_primary_david_david_watch
+        secondary_info: none
+        name: David watch primary
         tap_action:
-          action: call-service
-          service: button.press
-          service_data:
-            entity_id: button.irk_tracker_make_primary_david_david_watch
-  - entity: device_tracker.david_iphone
-    name: David iCloud3
-    icon: mdi:human
+          action: toggle
 ```
 
 ## Appdaemon Configuration
@@ -91,13 +123,25 @@ You can probably use the tracker configuration in apps.yaml without many changes
 - `away_tracker_arrival_delay_secs` should last for the duration from when you come into GPS zone range, and when you want to be considered "home" (i.e. I like the garage door card to come up when I'm right in front of my house).
 - `away_trackers` could be from a phone app, or better yet, iCloud3.
 - `rssi_adjustments` are constant offsets so that if you have different generations of ESP32 devices, or some cases affect the signal more than others, you can shift them to be comparable.
+- `pullout_sensors` are for your front door, garage, etc, so that you can tell when you've just left. You should configure which ESP devices are nearest to the exit point & sensor, so that only the household members who are actually heading out are identified as leaving.
 
 You'll need to set up your room aliases, which map ESP32 devices to the room they belong to.
-If you notice that a device is read equally from multiple rooms, use the `secondary_clarifiers`, and then the next-most strong signal will disambiguate.
+If you notice that a device is read equally from multiple rooms, use the `secondary_clarifiers` to list the rooms that ESP32 could be associated with, and then the next-most strong signal will disambiguate.
 This may require you to add more ESP32s to rooms for clarifying purposes.
 You can still include a `default` with the `secondary_clarifiers`, so that localization defaults to that room rather than `unknown`.
+Clarifiers can also map from a specific ESP32 device to a different room, so that you can mark hallways or others "spaces between" two ESP32 devices.
 
 Other settings aren't likely to need to change.
+
+## Building your own Automations
+
+Once you've configured the system, you'll want to create automations based on the `device_tracker.${person}_irk` and `home_focused_tracker` that you configure.
+
+The `_irk` tracker gives room-level positioning data, or `away` when that person's not at home.
+This can be used for automating preferences and views based on what room you're in.
+
+The fused tracker gives 4 states: `home`, `away`, `just_arrived`, and `just_left`.
+This can be used for automating views & events when coming and going from the home.
 
 ## Advanced Appdaemon irk tracker settings
 
@@ -107,25 +151,17 @@ Other settings aren't likely to need to change.
 
 ## ESPHome config
 
-Any ESP32 with bluetooth will work for this. You'll just need to add the following to your config:
+Any ESP32 with bluetooth will work for this.
+You should copy `irk_resolver.h` and `irk_locator.yaml` into your homeassistant's `config/esphome` folder.
+Then, you'll just need to add the following to your config:
+
 
 ```yaml
-bluetooth_proxy:
-
-esp32_ble_tracker:
-  on_ble_advertise:
-  - then:
-    - homeassistant.event:
-        event: esphome.ble_tracking_beacon
-        data:
-          source: ${name}
-          rssi: !lambda |-
-            return x.get_rssi();
-          addr: !lambda |-
-            return x.address_str();
+packages:
+  irk_locator: !include {file: irk_locator.yaml, irk_source: $device_name}
 ```
 
-**Note**: You should change `${name}` to whatever substitution you use for a device name, or just hardcode it there.
+**Note**: You must specify `irk_source` to be the source that will be used in the appdaemon config.
 
 ### Protect your HomeAssistant database
 
