@@ -40,7 +40,6 @@ class IrkTracker(hass.Hass):
         self.rssi_adjustments = self.args.get('rssi_adjustments',{})
         self.ping_halflife_seconds = self.args.get('ping_halflife_seconds', 60)
         self.log(f'rssi_adjustments = {self.rssi_adjustments}')
-        self.away_tracker_state = {}
         self.away_tracker_pending_arrivals = {}
         for room in self.room_aliases.values():
             if isinstance(room, str):
@@ -91,16 +90,25 @@ class IrkTracker(hass.Hass):
             #self.log(f"configuring away tracker {cfg}")
             person = cfg['person']
             tracker = cfg['tracker']
-            self.away_tracker_state[person] = 'home' if self.get_state(tracker) == 'home' else 'away'
+            init_fused_state = 'home' if self.get_state(tracker) == 'home' else 'away'
             fused_tracker = cfg['home_focused_tracker']
             self.fused_trackers[person] = fused_tracker
             self.listen_state(self.away_tracker_cb, tracker, person=person)
             fused_tracker = self.get_entity(fused_tracker)
-            fused_tracker.set_state(state=self.away_tracker_state[person])
+            fused_tracker.set_state(state=init_fused_state)
         for person in self.people:
             person_ent = self.get_entity(f'device_tracker.{person}_irk')
-            init_state = self.away_tracker_state.get(person, 'unknown')
+            if person in self.fused_trackers:
+                init_state = self.get_state(self.fused_trackers[person])
+            else:
+                init_state = 'unknown'
             person_ent.set_state(state=init_state, attributes={'from_device': 'init'})
+        for pullout_sensor in self.args.get('pullout_sensors', []):
+            entity = pullout_sensor['entity']
+            from_state = pullout_sensor['from']
+            to_state = pullout_sensor['to']
+            nearest_beacons = pullout_sensor['nearest_beacons']
+            self.listen_state(self.pullout_sensor_cb, entity, cfg=pullout_sensor)#, old=from_state, new=to_state, nearest_beacons=nearest_beacons)
         self.listen_event(self.ble_tracker_cb, "esphome.ble_tracking_beacon", addr=lambda addr: self.known_addr_cache.get(addr,None) != 'none')
         self.recording_df = None
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
@@ -137,9 +145,14 @@ class IrkTracker(hass.Hass):
             self.recording_df = None
 
     @ad.app_lock
-    def pullout_sensor(self, entity, attr, old, new, kwargs):
+    def pullout_sensor_cb(self, entity, attr, old, new, kwargs):
         self.log(f"pullout: {entity} went from {old} to {new}")
-        nearest_beacons = kwargs['nearest_beacons']
+        f = kwargs['cfg']['from']
+        t = kwargs['cfg']['to']
+        if old != f or new != t:
+            self.log(f"didn't match pullout: {old} != {f} or {new} != {t}")
+            return
+        nearest_beacons = kwargs['cfg']['nearest_beacons']
         for person in self.people:
             active_device = self.active_device_by_person[person]
             device_ent = self.get_entity(f'device_tracker.{active_device.replace(" ", "_")}_irk')
@@ -159,7 +172,6 @@ class IrkTracker(hass.Hass):
                 self.cancel_timer(self.away_tracker_pending_arrivals[person])
                 del self.away_tracker_pending_arrivals[person]
                 self.log(f"canceled pending arrival timer")
-            self.away_tracker_state[person] = 'away'
             person_ent = self.get_entity(f'device_tracker.{person}_irk')
             person_ent.set_state(state='away', attributes={'from_device': entity})
             fused_tracker = self.get_entity(self.fused_trackers[person])
@@ -173,7 +185,6 @@ class IrkTracker(hass.Hass):
     def arrived_home(self, kwargs):
         person = kwargs['person']
         self.log(f"registering that {person} arrived home (after delay)")
-        self.away_tracker_state[person] = 'home'
         fused_tracker = self.get_entity(self.fused_trackers[person])
         fused_tracker.set_state(state='home')
 
@@ -227,13 +238,20 @@ class IrkTracker(hass.Hass):
         obs = self.recent_observations[(source,matched_device)]
         #if source in self.rssi_adjustments:
         #    self.log(f"Adjusting rssi for {source} from {rssi} to {rssi + self.rssi_adjustments.get(source,0)}")
-        # If this is the first observation for this device, this means that the owner just arrived home, so we should update the fused tracker
+        # If this is the first observation for this device across all sources, this means that the owner just arrived home, so we should update the fused tracker
         # Unless this is within 30 seconds of the initialization of the component, in which case ignore it
         if len(obs) == 0 and (time - self.init_time).total_seconds() > 30:
-            device_person = self.identities[device]['person']
-            self.fused_trackers[person] = fused_tracker
-            fused_tracker = self.get_entity(self.fused_trackers[device_person])
-            fused_tracker.set_state(state='just_arrived')
+            # now, we need to check all the sources
+            other_source_had_obs = False
+            for other_obs in (o for (s,d),o in self.recent_observations.items() if d == matched_device and s != source):
+                if len(other_obs) != 0:
+                    other_source_had_obs = True
+                    break
+            if not other_source_had_obs:
+                device_person = self.identities[matched_device]['person']
+                fused_tracker = self.get_entity(self.fused_trackers[device_person])
+                fused_tracker.set_state(state='just_arrived')
+                self.log(f"{device_person} just arrived due to first observation from {matched_device}")
         obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
         self.tracking_resolve(matched_device)
         if matched_device in self.expiry_timers:
@@ -247,9 +265,6 @@ class IrkTracker(hass.Hass):
         del self.expiry_timers[device]
         self.tracking_resolve(device)
 
-    # TODO expose the away tracking state, and add 4 states (just arrived, just left, home, away) for driving automation
-    # TODO just arrived should be cued when we get our first new notification from the active device w/o observations
-    # TODO just left should be cued from a trigger input + active device being in a specific room, or from GPS marking away
     def tracking_resolve(self, device, force_update=False):
         room_votes = defaultdict(lambda: [])
         total_votes = 0
@@ -286,11 +301,13 @@ class IrkTracker(hass.Hass):
             weighted_votes.sort(key=lambda x: x[0], reverse=False)
             in_room = self.resolve_room(weighted_votes, device)
         device_person = self.identities[device]['person']
+        # they're always here if they don't have a fused tracker, or they're in a "home" state
+        person_is_home = device_person not in self.fused_trackers or self.get_state(self.fused_trackers[device_person]) in ['home', 'just_arrived']
         if device in self.device_in_room and in_room != 'unknown':
             old_room = self.device_in_room[device]
             if old_room != in_room or self.get_state(f'device_tracker.{device_person}_irk') == 'away' or force_update:
                 # publish that the person is in in_room, if we think they're actually here
-                if self.away_tracker_state[device_person] == 'home':
+                if person_is_home:
                     person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
                     person_ent.set_state(state=in_room, attributes={'from_device': device})
                 # mark that this is the "active" device for that person
@@ -302,7 +319,7 @@ class IrkTracker(hass.Hass):
         # finally, only if now every device is unknown
         active_device = self.active_device_by_person[device_person]
         active_device_unknown = self.device_in_room[active_device] == 'unknown'
-        if active_device_unknown and self.away_tracker_state[device_person] == 'home':
+        if active_device_unknown and person_is_home:
             # publish that the person isn't detected
             person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
             person_ent.set_state(state='unknown', attributes={'from_device': f'{active_device} unknown'})
@@ -328,6 +345,8 @@ class IrkTracker(hass.Hass):
             if isinstance(alias, str): # direct mapping
                 return alias
             elif 'secondary_clarifiers' in alias:
+                if len(weighted_votes) == 1: # we haven't observed anything else, so default if we have one
+                    return alias.get('default')
                 if i == 0:
                     next_index = 1
                 else:
