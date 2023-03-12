@@ -66,5 +66,5 @@ class GoPortParkingController(hass.Hass):
         time.sleep(5)
         self.log(f"buying daily: confirming quick-buy")
         quick_buy_confirm = self.driver.find_element(By.XPATH, "//span[@id='quickBuyConfirmPanel']//input[@Value='Yes']")
-        #quick_buy_confirm.click()
+        quick_buy_confirm.click()
         print(f"bought the daily pass (confirm={quick_buy_confirm})")
