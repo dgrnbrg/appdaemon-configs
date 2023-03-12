@@ -30,6 +30,9 @@ def fetch_data(from_sta, to_sta, label):
     try:
         u = f'https://backend-unified.mylirr.org/plan?from={from_sta}&to={to_sta}&fares=ALL&time={round(time.time() * 1000)}&arrive_by=false'
         r = requests.get(u, headers={'accept': 'application/json', 'accept-version': '3.0', 'dnt': '1'})
+    except:
+        traceback.print_exc()
+    try:
         parsed_trips = [parse_trip(t) for t in r.json()['trips']]
     except:
         for t in parsed_trips:
