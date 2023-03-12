@@ -50,11 +50,13 @@ tracker:
   ping_halflife_seconds: 60
   room_aliases:
     basement_beacon: downstairs
-    ep1-david-office: david-office
-    ep1-aysylu-office:
+    ep1-david-office:
       secondary_clarifiers:
-        - garage_assistant: main-floor
-      default: aysylu-office
+        - basement_beacon: main-floor
+        - ep1-bedroom: david-office
+        - underbed: david-office
+      default: david-office
+    ep1-aysylu-office: aysylu-office
     living_room_blinds: main-floor
     garage_assistant:
       secondary_clarifiers:
@@ -68,6 +70,7 @@ tracker:
       secondary_clarifiers:
         - main-floor
         - bedroom
+        - garage_assistant: main-floor
       default: bedroom
 
   #example_light:
@@ -380,3 +383,11 @@ lirr_fetcher:
   class: LirrFetcher
   module: lirr_fetcher
   max_lookback_mins: 45
+
+parking_booker:
+  class: GoPortParkingController
+  module: goportparking
+  username: !secret goportparking_username
+  password: !secret goportparking_password
+  plates:
+    - KTT9990
