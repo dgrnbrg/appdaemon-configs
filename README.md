@@ -123,7 +123,7 @@ You can probably use the tracker configuration in apps.yaml without many changes
 - `away_tracker_arrival_delay_secs` should last for the duration from when you come into GPS zone range, and when you want to be considered "home" (i.e. I like the garage door card to come up when I'm right in front of my house).
 - `away_trackers` could be from a phone app, or better yet, iCloud3.
 - `rssi_adjustments` are constant offsets so that if you have different generations of ESP32 devices, or some cases affect the signal more than others, you can shift them to be comparable.
-- `pullout_sensors` are for your front door, garage, etc, so that you can tell when you've just left. You should configure which ESP devices are nearest to the exit point & sensor, so that only the household members who are actually heading out are identified as leaving.
+- `pullout_sensors` are for your front door, garage, etc, so that you can tell when you've just left. You should configure which ESP devices are nearest to the exit point & sensor, so that only the household members who are actually heading out are identified as leaving. `within_top` allows for the sensor to be within that many of the closest sensor, depending on how quickly you'll pass by sensors on your way out of that exit.
 
 You'll need to set up your room aliases, which map ESP32 devices to the room they belong to.
 If you notice that a device is read equally from multiple rooms, use the `secondary_clarifiers` to list the rooms that ESP32 could be associated with, and then the next-most strong signal will disambiguate.

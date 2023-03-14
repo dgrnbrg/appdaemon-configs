@@ -152,15 +152,19 @@ class IrkTracker(hass.Hass):
         if old != f or new != t:
             self.log(f"didn't match pullout: {old} != {f} or {new} != {t}")
             return
+        within_top = kwargs['cfg'].get('within_top', 1)
         nearest_beacons = kwargs['cfg']['nearest_beacons']
         for person in self.people:
             active_device = self.active_device_by_person[person]
             device_ent = self.get_entity(f'device_tracker.{active_device.replace(" ", "_")}_irk')
             weighted_votes = device_ent.get_state(attribute='weighted_votes')
-            self.log(f"pullout for {person}: weighted votes are {weighted_votes}")
-            if weighted_votes[0][2] in nearest_beacons:
-                fused_tracker = self.get_entity(self.fused_trackers[person])
-                fused_tracker.set_state(state='just_left')
+            self.log(f"pullout for {person} (looking at top {within_top}): weighted votes are {weighted_votes}")
+            # lowest rssi * superplurality
+            rssi_limit = weighted_votes[0][0] * self.min_superplurality
+            for i in range(within_top):
+                if weighted_votes[i][2] in nearest_beacons and weighted_votes[i][0] <= rssi_limit:
+                    fused_tracker = self.get_entity(self.fused_trackers[person])
+                    fused_tracker.set_state(state='just_left')
 
     @ad.app_lock
     def away_tracker_cb(self, entity, attr, old, new, kwargs):

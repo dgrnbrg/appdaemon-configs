@@ -40,6 +40,7 @@ tracker:
     - entity: binary_sensor.garage_occupied
       from: 'on'
       to: 'off'
+      within_top: 2
       nearest_beacons:
         - garage_assistant
   rssi_adjustments:
