@@ -1,6 +1,7 @@
 substitutions:
   ld2410_id: 'ld2410_id'
   ld2410_name: ""
+  ld2410_password: "HiLink"
   sensor_throttle: '500ms'
   binary_sensor_debounce: '250ms'
 
@@ -22,10 +23,22 @@ ble_client:
           id: ${ld2410_id}
           service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
           characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
-          value: [
-            0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00, #preamble
-            0x48, 0x69, 0x4c, 0x69, 0x6e, 0x6b, # default password HiLink
-            0x04, 0x03, 0x02, 0x01] #postamble
+          value: !lambda |-
+            // data starts with preamble
+            std::vector<uint8_t> data = { 0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00 };
+            // postamble
+            std::vector<uint8_t> postamble = { 0x04, 0x03, 0x02, 0x01 };
+            std::string pw = {"${ld2410_password}"};
+            ESP_LOGD("2410_ble_auth", "password for ${mac_address} = %s", pw.c_str());
+            for (auto& c : pw) {
+              data.push_back(c);
+            }
+            data.insert(data.end(), postamble.begin(), postamble.end());
+            return data;
+#value: [
+#  0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00, #preamble
+#  0x48, 0x69, 0x4c, 0x69, 0x6e, 0x6b, # default password HiLink
+#  0x04, 0x03, 0x02, 0x01] #postamble
       - delay: 100ms
       - ble_client.ble_write:
           id: ${ld2410_id}

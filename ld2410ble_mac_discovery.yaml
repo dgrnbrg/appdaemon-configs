@@ -1,0 +1,53 @@
+esp32_ble_tracker:
+  on_ble_advertise:
+  - then:
+    - lambda: |-
+          static std::vector<std::string> known_ld2410_addrs;
+          if (x.get_name().rfind("HLK-LD2410", 0) == 0) {
+          //if (true) {
+            if (std::find(known_ld2410_addrs.begin(), known_ld2410_addrs.end(), x.address_str()) != known_ld2410_addrs.end()) {
+              // already seen
+              return;
+            }
+            known_ld2410_addrs.push_back(x.address_str());
+            ESP_LOGW("ble_adv", "New LD2410 device");
+            ESP_LOGW("ble_adv", "  address: %s", x.address_str().c_str());
+            ESP_LOGW("ble_adv", "  name: %s", x.get_name().c_str());
+            ESP_LOGD("ble_adv", "  Advertised service UUIDs:");
+            for (auto uuid : x.get_service_uuids()) {
+                ESP_LOGD("ble_adv", "    - %s", uuid.to_string().c_str());
+            }
+            ESP_LOGD("ble_adv", "  Advertised service data:");
+            for (auto data : x.get_service_datas()) {
+                ESP_LOGD("ble_adv", "    - %s: (length %i)", data.uuid.to_string().c_str(), data.data.size());
+                //for (auto b : data.data) {
+                //  ESP_LOGD("ble_svc_adv", " %x", b);
+                //}
+            }
+            ESP_LOGD("ble_adv", "  Advertised manufacturer data:");
+            for (auto data : x.get_manufacturer_datas()) {
+                ESP_LOGD("ble_adv", "    - %s: (length %i)", data.uuid.to_string().c_str(), data.data.size());
+                //for (auto b : data.data) {
+                //  ESP_LOGD("ble_mfg_adv", " %x", b);
+                //}
+
+            }
+            std::string tmp;
+            int min_idx = known_ld2410_addrs.size() - 3;
+            if (min_idx < 0) {
+              min_idx = 0;
+            }
+            for (int i = min_idx; i < known_ld2410_addrs.size(); i++) {
+              tmp += known_ld2410_addrs[i];
+              if (i != known_ld2410_addrs.size() - 1) {
+                tmp += ", ";
+              }
+            }
+            id(last_few_ld2410_addrs).publish_state(tmp);
+          }
+
+text_sensor:
+  - platform: template
+    name: Last few LD2410 MAC addresses
+    id: last_few_ld2410_addrs
+    entity_category: config
