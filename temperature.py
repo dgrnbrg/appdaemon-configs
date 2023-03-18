@@ -303,8 +303,11 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def wind_down_event(self, event_name, data, kwargs):
         if self.today_conf:
-            self.cancel_climb_heat_mode("presence change to sleep")
-            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['sleep'])
+            sleep_temp = self.today_conf['sleep']
+            self.cancel_climb_heat_mode("presence change to sleep. Setting target temp to sleep={sleep_temp} and deleting saved_temperature={self.today_conf['saved_temperature']}")
+            self.today_conf['target_temp'] = sleep_temp
+            del self.today_conf['saved_temperature']
+            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = sleep_temp)
 
     @ad.app_lock
     def morning_alarm_event(self, event_name, data, kwargs):
