@@ -87,15 +87,10 @@ class IrkTracker(hass.Hass):
             self.knn = None
         self.fused_trackers = {}
         for cfg in self.args['away_trackers']:
-            #self.log(f"configuring away tracker {cfg}")
+            #self.log(f"configuring fused trackers {cfg}")
             person = cfg['person']
-            tracker = cfg['tracker']
-            init_fused_state = 'home' if self.get_state(tracker) == 'home' else 'away'
             fused_tracker = cfg['home_focused_tracker']
             self.fused_trackers[person] = fused_tracker
-            self.listen_state(self.away_tracker_cb, tracker, person=person)
-            fused_tracker = self.get_entity(fused_tracker)
-            fused_tracker.set_state(state=init_fused_state)
         for person in self.people:
             person_ent = self.get_entity(f'device_tracker.{person}_irk')
             if person in self.fused_trackers:
@@ -103,6 +98,21 @@ class IrkTracker(hass.Hass):
             else:
                 init_state = 'unknown'
             person_ent.set_state(state=init_state, attributes={'from_device': 'init'})
+            fused_override_select = f"select.irk_tracker_fused_override_{person}"
+            self.get_entity(fused_override_select).set_state(state='unknown', attributes={'friendly_name': f"Override {person} home/away", 'person': person, 'options': ['home', 'away', 'just_arrived', 'just_left']})
+        for cfg in self.args['away_trackers']:
+            #self.log(f"initializing fused tracker {cfg}")
+            person = cfg['person']
+            tracker = cfg['tracker']
+            init_fused_state = 'home' if self.get_state(tracker) == 'home' else 'away'
+            self.set_person_fused_tracker_state(person, init_fused_state, 'init')
+            self.listen_state(self.away_tracker_cb, tracker, person=person)
+        def filter_override_fused(x):
+            entity = x.get('entity_id')
+            if isinstance(entity, str):
+                return entity.startswith('select.irk_tracker_fused_override_')
+            return False
+        self.listen_event(self.override_fused_cb, "call_service", domain="select", service="select_option", service_data=filter_override_fused)
         for pullout_sensor in self.args.get('pullout_sensors', []):
             entity = pullout_sensor['entity']
             from_state = pullout_sensor['from']
@@ -166,6 +176,15 @@ class IrkTracker(hass.Hass):
                     fused_tracker = self.get_entity(self.fused_trackers[person])
                     fused_tracker.set_state(state='just_left')
 
+    def set_person_fused_tracker_state(self, person, state, from_device='bug'):
+        fused_tracker = self.get_entity(self.fused_trackers[person])
+        fused_tracker.set_state(state=state)
+        if state == 'away':
+            person_ent = self.get_entity(f'device_tracker.{person}_irk')
+            person_ent.set_state(state='away', attributes={'from_device': from_device})
+        fused_override_select = f"select.irk_tracker_fused_override_{person}"
+        self.get_entity(fused_override_select).set_state(state=state)
+
     @ad.app_lock
     def away_tracker_cb(self, entity, attr, old, new, kwargs):
         person = kwargs['person']
@@ -176,21 +195,36 @@ class IrkTracker(hass.Hass):
                 self.cancel_timer(self.away_tracker_pending_arrivals[person])
                 del self.away_tracker_pending_arrivals[person]
                 self.log(f"canceled pending arrival timer")
-            person_ent = self.get_entity(f'device_tracker.{person}_irk')
-            person_ent.set_state(state='away', attributes={'from_device': entity})
-            fused_tracker = self.get_entity(self.fused_trackers[person])
-            fused_tracker.set_state(state='away')
+            self.set_person_fused_tracker_state(person, 'away', entity)
         else:
-            self.log(f"arrived home, acknowledging in {self.args['away_tracker_arrival_delay_secs']}")
-            cb_token = self.run_in(self.arrived_home, person=person, delay=self.args['away_tracker_arrival_delay_secs'])
-            self.away_tracker_pending_arrivals[person] = cb_token
+            cur_state = self.get_state(self.fused_trackers[person])
+            self.log(f"arrived home, current fused state = {cur_state}")
+            if cur_state == 'home':
+                self.log(f"doing nothing because we are already aware they're home")
+            else:
+                self.log(f"acknowledging in {self.args['away_tracker_arrival_delay_secs']}")
+                cb_token = self.run_in(self.arrived_home, person=person, delay=self.args['away_tracker_arrival_delay_secs'])
+                self.away_tracker_pending_arrivals[person] = cb_token
 
     @ad.app_lock
     def arrived_home(self, kwargs):
         person = kwargs['person']
         self.log(f"registering that {person} arrived home (after delay)")
-        fused_tracker = self.get_entity(self.fused_trackers[person])
-        fused_tracker.set_state(state='home')
+        self.set_person_fused_tracker_state(person, 'home')
+
+    @ad.app_lock
+    def override_fused_cb(self, event_name, data, kwargs):
+        entity = data['service_data']['entity_id']
+        option = data['service_data']['option']
+        attrs = self.get_state(entity, attribute='all')
+        person = attrs['attributes']['person']
+        self.log(f'overriding fused for {person} to {option}')
+        if person in self.away_tracker_pending_arrivals:
+            self.cancel_timer(self.away_tracker_pending_arrivals[person])
+            del self.away_tracker_pending_arrivals[person]
+            self.log(f"canceled pending arrival timer for {person}")
+        self.set_person_fused_tracker_state(person, option, 'fused_override')
+
 
     @ad.app_lock
     def make_primary_cb(self, event_name, data, kwargs):
@@ -253,8 +287,7 @@ class IrkTracker(hass.Hass):
                     break
             if not other_source_had_obs:
                 device_person = self.identities[matched_device]['person']
-                fused_tracker = self.get_entity(self.fused_trackers[device_person])
-                fused_tracker.set_state(state='just_arrived')
+                self.set_person_fused_tracker_state(device_person, 'just_arrived')
                 self.log(f"{device_person} just arrived due to first observation from {matched_device}")
         obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
         self.tracking_resolve(matched_device)
