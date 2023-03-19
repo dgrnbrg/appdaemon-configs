@@ -142,6 +142,7 @@ class ConvergenceSpeedCalibration(hass.Hass):
 class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def initialize(self):
+        self.debug_enabled = self.args.get('debug_enabled', False)
         self.thermostat = self.args["climate_entity"]
         self.max_diff_for_heat_pump = self.args["max_diff_for_heat_pump"]
         self.report_ent_name = self.args['report_entity']
@@ -160,7 +161,8 @@ class BasicThermostatController(hass.Hass):
             self.setup_listen_state(cb=self.did_leave, entity=entity, present_state=absent_state, absent_state=present_state, immediate=True)
         self.determine_if_warm_or_cool_day({})
         self.next_target = 0 # used for climb heat mode
-        self.debug_enabled = self.args.get('debug_enabled', False)
+        if 'sleep_fallback_time' in self.args:
+            self.run_daily(self.sleep_time_fallback, self.args['sleep_fallback_time'])
 
     def setup_listen_state(self, cb, present_state, absent_state, entity, **kwargs):
         cur_state = self.get_state(entity)
@@ -301,12 +303,18 @@ class BasicThermostatController(hass.Hass):
         report_ent.set_state(state=self.presence_state, attributes=self.today_conf)
 
     @ad.app_lock
+    def sleep_time_fallback(self, kwargs):
+        self.wind_down_event("night time fallback", {'source': 'night time fallback'}, kwargs)
+
+    @ad.app_lock
     def wind_down_event(self, event_name, data, kwargs):
         if self.today_conf:
             sleep_temp = self.today_conf['sleep']
-            self.cancel_climb_heat_mode("presence change to sleep. Setting target temp to sleep={sleep_temp} and deleting saved_temperature={self.today_conf['saved_temperature']}")
+            self.cancel_climb_heat_mode("presence change to sleep.")
+            self.log(f"Setting target temp to sleep={sleep_temp} and deleting saved_temperature={self.today_conf.get('saved_temperature')} (event data: {data})")
             self.today_conf['target_temp'] = sleep_temp
-            del self.today_conf['saved_temperature']
+            if 'saved_temperature' in self.today_conf:
+                del self.today_conf['saved_temperature']
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = sleep_temp)
 
     @ad.app_lock
