@@ -133,8 +133,8 @@ sensor:
       if (x[0] != 0xf4 || x[1] != 0xf3 || x[2] != 0xf2 || x[3] != 0xf1) {
         return NAN;
       }
-      boolean moving = x[8] & 0x1;
-      boolean stationary = x[8] & 0x2;
+      bool moving = x[8] & 0x1;
+      bool stationary = x[8] & 0x2;
       float detect_distance = x[15];
       detect_distance += x[16] << 8;
       float static_distance = x[12];
