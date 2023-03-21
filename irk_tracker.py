@@ -124,7 +124,7 @@ class IrkTracker(hass.Hass):
         self.listen_event(self.start_recording, "irk_tracker.start_recording")
         self.listen_event(self.stop_recording, "irk_tracker.stop_recording")
         self.recent_observations = defaultdict(lambda: [])
-        self.get_entity('sensor.irk_prefilter').set_state(state=':'.join(irk_prefilters))
+        self.get_entity('sensor.irk_prefilter').set_state(state=':'.join(irk_prefilters) + ':') # TODO the filtering code on the esp requires a trailing colon
         self.init_time = datetime.now()
 
     def flush_recording(self):
