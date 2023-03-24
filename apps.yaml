@@ -344,6 +344,7 @@ basic_thermostat:
     wake:
       name: ios.action_fired
       actionName: morning_alarm
+  sleep_fallback_time: "22:00:00"
   presence:
     - device_tracker.david_fused in [home, just_arrived]
     - device_tracker.aysylu_fused in [home, just_arrived]
@@ -390,5 +391,6 @@ parking_booker:
   module: goportparking
   username: !secret goportparking_username
   password: !secret goportparking_password
+  parking_pass_email_sensor: sensor.port_washington_parking_pass
   plates:
     - KTT9990
