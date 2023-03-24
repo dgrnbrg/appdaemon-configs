@@ -64,9 +64,14 @@ tracker:
         - downstairs
         - main-floor
         - ep1-aysylu-office: main-floor
+        - ep1-david-office: main-floor
     ep1-main-floor: main-floor
     bedroom_blinds: bedroom
     ep1-bedroom: bedroom
+    ep1-kitchen:
+      secondary_clarifiers:
+        - main-floor
+        - aysylu-office
     underbed:
       secondary_clarifiers:
         - main-floor
@@ -118,8 +123,10 @@ living_room_lights:
       max_brightness: 30%
       transition: 8
     - presence:
-      - device_tracker.david_fused in [home, just_arrived]
-      - device_tracker.aysylu_fused in [home, just_arrived]
+      - binary_sensor.main_floor_occupancy
+#    - presence:
+#      - device_tracker.david_fused in [home, just_arrived]
+#      - device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.living_room
 
@@ -171,8 +178,9 @@ dining_room_lights:
       transition: 8
     - presence:
       - binary_sensor.main_floor_occupancy
-      - device_tracker.david_fused in [home, just_arrived]
-      - device_tracker.aysylu_fused in [home, just_arrived]
+      - binary_sensor.kitchen_occupancy
+      #- device_tracker.david_fused in [home, just_arrived]
+      #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.dining_table_fan_fixture
 
@@ -251,9 +259,9 @@ kitchen_lights:
       #- input_text.test_helper_text == sleep
       state: turned_off
     - presence:
-      - binary_sensor.main_floor_occupancy
-      - device_tracker.david_fused in [home, just_arrived]
-      - device_tracker.aysylu_fused in [home, just_arrived]
+      - binary_sensor.kitchen_occupancy
+      #- device_tracker.david_fused in [home, just_arrived]
+      #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.kitchen
 
