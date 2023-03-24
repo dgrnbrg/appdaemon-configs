@@ -156,7 +156,7 @@ class IrkTracker(hass.Hass):
 
     @ad.app_lock
     def pullout_sensor_cb(self, entity, attr, old, new, kwargs):
-        self.log(f"pullout: {entity} went from {old} to {new}")
+        #self.log(f"pullout: {entity} went from {old} to {new}")
         f = kwargs['cfg']['from']
         t = kwargs['cfg']['to']
         if old != f or new != t:

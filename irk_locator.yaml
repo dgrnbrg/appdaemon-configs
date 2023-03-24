@@ -74,3 +74,4 @@ text_sensor:
               irk_prefilters.push_back(ov);
               x.erase(0, pos + 1);
             }
+            ESP_LOGD("local_irk", "imported prefiltering for %d devices", irk_prefilters.size());
