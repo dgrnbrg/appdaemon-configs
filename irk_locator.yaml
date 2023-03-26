@@ -6,6 +6,11 @@ esphome:
   includes:
     - irk_resolver.h
 
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_MBEDTLS_HARDWARE_AES: y
+
 bluetooth_proxy:
 
 esp32_ble_tracker:
@@ -74,4 +79,3 @@ text_sensor:
               irk_prefilters.push_back(ov);
               x.erase(0, pos + 1);
             }
-            ESP_LOGD("local_irk", "imported prefiltering for %d devices", irk_prefilters.size());
