@@ -10,8 +10,17 @@
 #include <aes_alt.h>
 #endif
 
+//#ifdef USE_ARDUINO
+//#elif defined(USE_ESP_IDF)
+//#endif
+
 int bt_encrypt_be(const uint8_t *key, const uint8_t *plaintext, uint8_t *enc_data) {
-    mbedtls_aes_context s = {0};
+    mbedtls_aes_context s = {
+        0
+#ifdef USE_ESP_IDF
+        , 0, 0
+#endif
+    };
     mbedtls_aes_init(&s);
 
     if (mbedtls_aes_setkey_enc(&s, key, 128) != 0) {
