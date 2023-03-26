@@ -35,10 +35,6 @@ ble_client:
             }
             data.insert(data.end(), postamble.begin(), postamble.end());
             return data;
-#value: [
-#  0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00, #preamble
-#  0x48, 0x69, 0x4c, 0x69, 0x6e, 0x6b, # default password HiLink
-#  0x04, 0x03, 0x02, 0x01] #postamble
       - delay: 100ms
       - ble_client.ble_write:
           id: ${ld2410_id}
@@ -61,6 +57,9 @@ ble_client:
           # diable config
           value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0xfe, 0x00, 0x04, 0x03, 0x02, 0x01]
       - delay: 100ms
+      - lambda: |-
+          ESP_LOGD("${ld2410_id}_connect", "completed connection process");
+
 
 binary_sensor:
   - platform: template
@@ -130,6 +129,10 @@ sensor:
     - throttle: ${sensor_throttle}
     id: ${ld2410_id}_internal_parser
     lambda: |-
+      if (x.size() < 16) {
+        ESP_LOGD("${ld2410_id}_notify", "notify was given too little data (%d bytes)", x.size());
+        return NAN;
+      }
       if (x[0] != 0xf4 || x[1] != 0xf3 || x[2] != 0xf2 || x[3] != 0xf1) {
         return NAN;
       }
