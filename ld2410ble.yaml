@@ -5,6 +5,11 @@ substitutions:
   sensor_throttle: '500ms'
   binary_sensor_debounce: '250ms'
 
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_BT_BLE_42_FEATURES_SUPPORTED: y
+
 ble_client:
   - mac_address: ${mac_address}
     id: ${ld2410_id}
