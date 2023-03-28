@@ -168,13 +168,16 @@ class IrkTracker(hass.Hass):
             active_device = self.active_device_by_person[person]
             device_ent = self.get_entity(f'device_tracker.{active_device.replace(" ", "_")}_irk')
             weighted_votes = device_ent.get_state(attribute='weighted_votes')
-            self.log(f"pullout for {person} (looking at top {within_top}): weighted votes are {weighted_votes}")
-            # lowest rssi * superplurality
-            rssi_limit = weighted_votes[0][0] * self.min_superplurality
-            for i in range(within_top):
-                if weighted_votes[i][2] in nearest_beacons and weighted_votes[i][0] <= rssi_limit:
-                    fused_tracker = self.get_entity(self.fused_trackers[person])
-                    fused_tracker.set_state(state='just_left')
+            if weighted_votes:
+                self.log(f"pullout for {person} (looking at top {within_top}): weighted votes are {weighted_votes}")
+                # lowest rssi * superplurality
+                rssi_limit = weighted_votes[0][0] * self.min_superplurality
+                for i in range(within_top):
+                    if weighted_votes[i][2] in nearest_beacons and weighted_votes[i][0] <= rssi_limit:
+                        fused_tracker = self.get_entity(self.fused_trackers[person])
+                        fused_tracker.set_state(state='just_left')
+            else:
+                self.log(f"pullout for {person} has no weighted votes")
 
     def set_person_fused_tracker_state(self, person, state, from_device='bug'):
         fused_tracker = self.get_entity(self.fused_trackers[person])
