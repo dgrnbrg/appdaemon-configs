@@ -44,15 +44,15 @@ class GoPortParkingController(hass.Hass):
             entity = self.get_entity(entity_id)
             if new not in ['RPP Approved', 'Payment  Processed']:
                 self.log(f"Unexpected email from RPP email: {new}")
-                entity.set_state('error', attributes={'detail': 'Unexpected email from parking: {new}'})
+                entity.set_state(state='error', attributes={'detail': 'Unexpected email from parking: {new}'})
             else:
-                entity.set_state('successfully_purchased', attributes={'detail': 'Purchase successfully completed.'})
+                entity.set_state(state='successfully_purchased', attributes={'detail': 'Purchase successfully completed.'})
 
     def reset_state(self, kwargs):
         for plate in self.args['plates']:
             entity_id = f"button.quick_buy_daily_{plate}"
             entity = self.get_entity(entity_id)
-            entity.set_state('unknown', attributes={'detail': 'Ready to buy'})
+            entity.set_state(state='unknown', attributes={'detail': 'Ready to buy'})
 
     def book_daily(self, event_name, data, kwargs):
         entity = data['service_data']['entity_id']
