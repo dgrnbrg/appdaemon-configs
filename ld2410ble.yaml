@@ -5,25 +5,56 @@ substitutions:
   sensor_throttle: '500ms'
   binary_sensor_debounce: '250ms'
 
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - switch.turn_on: "${ld2410_id}_enable_switch"
+      # This will cause the startup script to run
+      - binary_sensor.template.publish:
+          id: "${ld2410_id}_ble_connected"
+          state: OFF
+
 esp32:
   framework:
     sdkconfig_options:
       CONFIG_BT_BLE_42_FEATURES_SUPPORTED: y
+
+script:
+  - id: ${ld2410_id}_start_after_delay
+    then:
+      # random 1-15s delay
+      - delay: !lambda  'int d = (rand() % 14000) + 1000; ESP_LOGD("${ld2410_id}", "starting after %d millis", d); return d;'
+      - lambda: |-
+          id(${ld2410_id})->set_enabled(true);
 
 ble_client:
   - mac_address: ${mac_address}
     id: ${ld2410_id}
     on_disconnect:
       then:
+      - binary_sensor.template.publish:
+          id: "${ld2410_id}_ble_connected"
+          state: OFF
+      - logger.log:
+          format: "disconnected"
+          tag: "${ld2410_id}_connect"
+      - delay: 100ms
       - lambda: |-
-          id(${ld2410_id}_ble_connected).publish_state(false);
-          ESP_LOGD("${ld2410_id}_connect", "disconnecting... :(");
+          id(${ld2410_id}_motion_detected).publish_state(false);
+          id(${ld2410_id}_occupancy_detected).publish_state(false);
+          id(${ld2410_id}_static_distance).publish_state(NAN);
+          id(${ld2410_id}_motion_distance).publish_state(NAN);
+          id(${ld2410_id}_static_energy).publish_state(NAN);
+          id(${ld2410_id}_moving_energy).publish_state(NAN);
+          id(${ld2410_id}_detection_distance).publish_state(NAN);
     on_connect:
       then:
-      - lambda: |-
-          id(${ld2410_id}_ble_connected).publish_state(true);
-          ESP_LOGD("${ld2410_id}_connect", "connecting!");
-      - delay: 1000ms
+      - logger.log:
+          format: "connecting"
+          tag: "${ld2410_id}_connect"
+      - delay: 100ms
       - ble_client.ble_write:
           id: ${ld2410_id}
           service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
@@ -62,8 +93,45 @@ ble_client:
           # diable config
           value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0xfe, 0x00, 0x04, 0x03, 0x02, 0x01]
       - delay: 100ms
-      - lambda: |-
-          ESP_LOGD("${ld2410_id}_connect", "completed connection process");
+      - logger.log:
+          format: "completed ble connection process, waiting for updates..."
+          tag: "${ld2410_id}_connect"
+      # automatically try to toggle if it didn't connect
+      - delay: 10s # we give it 10 seconds to connect
+      - if:
+          condition:
+            binary_sensor.is_off: ${ld2410_id}_ble_connected
+          then: # we need to toggle it
+            - logger.log:
+                format: "Failed to connect to push updates, retrying..."
+                tag: "${ld2410_id}_connect"
+            - switch.turn_off: "${ld2410_id}_enable_switch_internal"
+            - script.execute: ${ld2410_id}_start_after_delay
+
+
+switch:
+  - platform: template
+    name: "${ld2410_name}Enabled"
+    id: "${ld2410_id}_enable_switch"
+    entity_category: diagnostic
+    optimistic: True
+    turn_on_action:
+      switch.turn_on: "${ld2410_id}_enable_switch_internal"
+    turn_off_action:
+      switch.turn_off: "${ld2410_id}_enable_switch_internal"
+  - platform: template
+    id: "${ld2410_id}_enable_switch_internal"
+    internal: True
+    turn_on_action:
+      lambda: |-
+        ESP_LOGD("${ld2410_id}", "Enabling ble client");
+        id(${ld2410_id})->set_enabled(true);
+    turn_off_action:
+      lambda: |-
+        ESP_LOGD("${ld2410_id}", "Disabling ble client");
+        id(${ld2410_id})->set_enabled(false);
+    lambda: |-
+        return id(${ld2410_id})->enabled;
 
 
 binary_sensor:
@@ -82,6 +150,17 @@ binary_sensor:
   - platform: template
     name: "${ld2410_name}LD2410 Connected"
     id: ${ld2410_id}_ble_connected
+    on_release:
+      then:
+        - if:
+            condition:
+              switch.is_on: ${ld2410_id}_enable_switch
+            then: # we need to toggle it
+              - logger.log:
+                  format: "Connection lost, reconnecting..."
+                  tag: "${ld2410_id}"
+              - switch.turn_off: "${ld2410_id}_enable_switch_internal"
+              - script.execute: ${ld2410_id}_start_after_delay
 
 sensor:    
   - platform: template
@@ -134,6 +213,10 @@ sensor:
     - throttle: ${sensor_throttle}
     id: ${ld2410_id}_internal_parser
     lambda: |-
+      // Only report connected once we have seen the first update
+      if (!${ld2410_id}_ble_connected->state) {
+        id(${ld2410_id}_ble_connected).publish_state(true);
+      }
       if (x.size() < 16) {
         ESP_LOGD("${ld2410_id}_notify", "notify was given too little data (%d bytes)", x.size());
         return NAN;
