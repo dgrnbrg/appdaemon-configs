@@ -3,6 +3,10 @@ This repository contains systems for a few nice things:
 - BLE-based room-level presence with ESPHome for iOS devices
 - Presence based light controller, with many useful affordances (guest mode, reautomation, manual control, adaptive lighting, and more)
 - Presence and event based thermostat controller, with many useful affordances (heat pump awareness, drafty-home awareness, sleep mode, and more)
+- ESPHome binary sensor for occupancy--allows you to combine multiple binary sensors for presence (it's on when any are on, off when all are off)
+- ESPHome LD2410B/C bluetooth integration, so that you can directly connect & automate up to 3 LD2410B/C to an ESPHome device
+- ESPHome LD2410B/C bluetooth provisioning helper, so that you can quickly get the MAC address of each of your LD2410 sensors
+- ESPHome IRK provisioning helper, so that you can pair your phone to an ESPHome device and extract the IRK for passive BLE tracking
 
 # Bluetooth room-level tracking for iPhones, Apple watches, and other "untrackable" devices using ESPHome
 
@@ -273,6 +277,68 @@ Next, go to the Shortcuts app (built in to iOS). Go to the Automation tab, and c
 
 Again, we'll make one more Automation in Shortcuts; this time, When Wind Down starts, "Perform Action" `wind_down`. Once again, you'll want to uncheck "Ask Before Running".
 
+# Occupancy Combining Sensor
+
+This is something you'll want to use to combine multiple presence detectors on-device, such as LD2410b, other mmWave sensors, and PIR sensors.
+
+```yaml
+external_components:
+  - source: github://dgrnbrg/appdaemon-configs
+
+binary_sensor:
+  - platform: presence_combo
+    name: Basement Occupancy
+    device_class: occupancy
+    filters:
+      - delayed_off: ${occupancy_delay_off}
+    ids:
+      - computer_area_id_occupancy_detected
+      - entrance_id_occupancy_detected
+      - workout_id_occupancy_detected
+```
+
+# IRK Provisioning Helper
+
+This creates a text sensor that will show the IRK of the most recently paired device. Just find the ESPHome device by its name in your phone's bluetooth.
+
+```yaml
+external_components:
+  - source: github://dgrnbrg/appdaemon-configs
+
+irk_enrollment:
+```
+
+# LD2410B/C Provisioning Helper
+
+Just copy `ld2410ble_mac_discovery.yaml` into your esphome folder. Then, this will print each LD2410 to the ESPHome log (as they are detected), and it will show the last 3 detected sensors in a text sensor.
+
+I would recommend powering up each LD2410B and waiting to see it pop up, then copy & pasting its MAC address before moving on.
+
+```yaml
+packages:
+  ld2410_provisioning: !include ld2410ble_mac_discovery.yaml
+```
+
+# LD2410B/C ESPHome driver
+
+This will allow you to directly pair LD2410B/C with your ESPHome device, so that you can run local automations with them.
+Once you copied the yaml file into your esphome folder, see below for an example configuration.
+You may need to wait up to a minute for the connection to be established--this driver automatically attempts to recover lost connections.
+
+Use `HLKRadarTool` on your phone's app store to change settings on the sensors, such as their password or detection timeouts.
+If you need to connect with `HLKRadarTool` and you don't see your sensor, you may need to turn off the enable switch that was added to ESPHome--the sensor can only pair with one other device at a time.
+
+If you specify a name, make sure to include a trailing space (` `) so that the name is formatted correctly. At a minimum, provide the `ld2410_id` and `mac_address` for your sensor.
+You can also specify `sensor_throttle` and `binary_sensor_debounce` to reduce the update rate (these devices update hundredes of times per second).
+
+```yaml
+packages:
+  base: !include device-base.yaml
+  ld2410: !include {file: ld2410ble.yaml, vars: { mac_address: 'XX:XX:XX:XX:XX:XX', ld2410_password: "newpw1", ld2410_id: "computer_area_id" } }
+  ld2410_2: !include {file: ld2410ble.yaml, vars: { mac_address: 'XX:XX:XX:XX:XX:XX',  ld2410_id: "entrance_id", ld2410_name: "Garage Entrance " } }
+  ld2410_3: !include {file: ld2410ble.yaml, vars: { mac_address: 'XX:XX:XX:XX:XX:XX',  ld2410_id: "workout_id", ld2410_name: "Workout Area " } }
+```
+
 # Deployment (reminder for myself)
 
 ```
@@ -281,3 +347,4 @@ scp temperature.py homeassistant:/config/appdaemon/apps/
 scp lights.py homeassistant:/config/appdaemon/apps/
 scp apps.yaml homeassistant:/config/appdaemon/apps/
 ```
+
