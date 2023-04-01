@@ -171,8 +171,9 @@ class LightController(hass.Hass):
                         duration = 0
                     self.setup_listen_state(cb=self.trigger_off, entity=entity, present_state=absent_state, absent_state=present_state, duration=duration, trigger=i, immediate=True)
             self.triggers.append(trigger)
-        self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_kelvin', immediate=True)
-        self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
+        if 'adaptive_lighting' in self.args:
+            self.listen_state(self.on_adaptive_lighting_temp, self.args['adaptive_lighting'], attribute='color_temp_kelvin', immediate=True)
+            self.listen_state(self.on_adaptive_lighting_brightness, self.args['adaptive_lighting'], attribute='brightness_pct', immediate=True)
         self.listen_event(self.service_snoop, "call_service", domain="button", service="press", service_data=self.service_entity_matcher(self.reautomate_button))
         self.listen_event(self.service_snoop, "call_service", domain="light", service_data=self.service_entity_matcher(self.light))
         self.listen_event(self.service_snoop, "call_service", domain="input_boolean", service_data=self.service_entity_matcher(self.guest_mode_switch))
