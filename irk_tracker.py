@@ -20,6 +20,7 @@ class IrkTracker(hass.Hass):
     def initialize(self):
         self.known_addr_cache = {}
         self.room_aliases = self.args.get('room_aliases', {})
+        self.room_presence = self.args.get('room_presence', {})
         for room, alias in self.room_aliases.items():
             if 'secondary_clarifiers' in alias:
                 clarifiers = {}
@@ -339,13 +340,26 @@ class IrkTracker(hass.Hass):
                 # at this point, resolve to a room
                 weighted_votes.append((numerator / denominator, count, orig_source))
             weighted_votes.sort(key=lambda x: x[0], reverse=False)
-            in_room = self.resolve_room(weighted_votes, device)
+            in_room = self.resolve_room2(weighted_votes, device)
         device_person = self.identities[device]['person']
         # they're always here if they don't have a fused tracker, or they're in a "home" state
         person_is_home = device_person not in self.fused_trackers or self.get_state(self.fused_trackers[device_person]) in ['home', 'just_arrived']
         if device in self.device_in_room and in_room != 'unknown':
             old_room = self.device_in_room[device]
-            if old_room != in_room or self.get_state(f'device_tracker.{device_person}_irk') == 'away' or force_update:
+            # here we filter to ensure the in_room is occupied, or else we can ignore this update
+            in_room_is_eligible = True
+            if in_room in self.room_presence:
+                in_room_is_eligible = False
+                for sensor in self.room_presence[in_room]:
+                    if self.get_state(sensor) == 'on':
+                        in_room_is_eligible = True
+                        break
+            #self.log(f"in_room={in_room}, presence={self.room_presence.keys()}, eligble={in_room_is_eligible}")
+            # This statement is saying that:
+            # If the room is occupied, and it's different than the last place we had them, we can update
+            # If the room is occupied, and we think they are away, if they're home now, we'll resume updating their room tracker
+            # Or if it's a forced update, just go for it
+            if (in_room_is_eligible and old_room != in_room or self.get_state(f'device_tracker.{device_person}_irk') == 'away') or force_update:
                 # publish that the person is in in_room, if we think they're actually here
                 if person_is_home:
                     person_ent = self.get_entity(f'device_tracker.{device_person}_irk')
@@ -418,12 +432,66 @@ class IrkTracker(hass.Hass):
         if len(rooms) == 1:
             resolved_room = rooms[0]
         elif len(rooms) >= 2:
+            # TODO this should consider the secondary clarifiers as well
             if weighted_votes[0][0] < weighted_votes[1][0] * self.min_superplurality or rooms[0] == rooms[1]:
                 resolved_room = rooms[0]
             else: # there was no superplurality
                 resolved_room = 'unknown'
         if resolved_room is None:
             resolved_room = 'unknown'
+        return resolved_room
+
+    def resolve_room2(self, weighted_votes, device):
+        rooms = []
+        def resolve_inner(i, recur=True):
+            rssi, count, source = weighted_votes[i]
+            alias = self.room_aliases[source]
+            if isinstance(alias, str): # direct mapping
+                return (rssi, count, alias)
+            elif 'secondary_clarifiers' in alias:
+                clarifiers = alias['secondary_clarifiers']
+                # Look over the candidate clarifiers, which is everything with a higher signal strength & the next one
+                clarifying_sources = []
+                for j, (c_rssi, c_count, c_source) in enumerate(weighted_votes[0:min(i+2, len(weighted_votes))]):
+                    if j != i: # we can't self-clarify, of course
+                        clarifying_sources.append((j, (c_rssi, c_count, c_source)))
+                # map each clarifying source to rssi + room
+                resolved_clarifying_sources = []
+                for j, (c_rssi, c_count, c_source) in clarifying_sources:
+                    if c_source in clarifiers: # it's a source -> room mapping
+                        resolved_clarifying_sources.append((c_rssi, c_count, clarifiers[c_source]))
+                    elif recur: # we can try to resolve once
+                        x = resolve_inner(j, recur=False)
+                        if x is not None:
+                            (c_rssi_resolve, c_count_resolved, c_source_resolved) = x
+                            if c_source_resolved in clarifiers: # we can now resolve the room
+                                resolved_clarifying_sources.append((c_rssi_resolve, c_count_resolved, clarifiers[c_source_resolved]))
+                    else:
+                        pass # we can't resolve devices to rooms on the 2nd recurrance
+                # we have a list of rssi,count,room in resolved_clarifying_sources that all matched 2ndary clarifiers
+                # if all rooms are the same, just return that
+                if len(set(room for (_,_,room) in resolved_clarifying_sources)) == 1:
+                    return resolved_clarifying_sources[0]
+                # The first clarifier that's superplural to others that don't match wins
+                for c_rssi, c_count, c_room in resolved_clarifying_sources:
+                    nonmatching_min_rssi = min(rssi for (rssi, _, room) in resolved_clarifying_sources if room != c_room)
+                    if c_rssi < nonmatching_min_rssi * self.min_superplurality:
+                        # winner
+                        return (c_rssi, c_count, c_room)
+            else:
+                raise ValueError(f'invalid alias config: {alias}')
+        for i, (rssi, count, source) in enumerate(weighted_votes):
+            room = resolve_inner(i)
+            if room is not None:
+                rooms.append(room)
+        resolved_room = 'unknown'
+        if len(rooms) == 1:
+            (_,_,resolved_room) = rooms[0]
+        elif len(rooms) >= 2:
+            if rooms[0][0] < rooms[1][0] * self.min_superplurality or rooms[0][2] == rooms[1][2]:
+                resolved_room = rooms[0][2]
+            else: # there was no superplurality
+                resolved_room = 'unknown'
         return resolved_room
 
     def prune_old_obs(self, obs):

@@ -28,6 +28,8 @@ tracker:
   #    - device_name: 'partner watch'
   #      irk: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   #      person: aysylu
+  device_deactivators: # TODO lol
+    'david watch': sensor.davids_apple_watch_battery_state.battery_status in [NotCharging, Charging]
   away_tracker_arrival_delay_secs: 120
   away_trackers:
     - person: david
@@ -49,6 +51,19 @@ tracker:
   tracking_window_minutes: 3
   tracking_min_superplurality: 1.3
   ping_halflife_seconds: 60
+  room_presence:
+    downstairs:
+      - binary_sensor.basement_occupancy
+    david-office:
+      - binary_sensor.david_office_occupancy
+    aysylu-office:
+      - binary_sensor.aysylu_office_occupancy
+    bedroom:
+      - binary_sensor.someone_in_bed
+      - binary_sensor.bedroom_occupancy
+    main-floor:
+      - binary_sensor.main_floor_occupancy
+      - binary_sensor.kitchen_occupancy
   room_aliases:
     basement_beacon: downstairs
     ep1-david-office:
@@ -72,6 +87,7 @@ tracker:
       secondary_clarifiers:
         - main-floor
         - aysylu-office
+        - basement_beacon: main-floor
     underbed:
       secondary_clarifiers:
         - main-floor
@@ -124,6 +140,7 @@ living_room_lights:
       transition: 8
     - presence:
       - binary_sensor.main_floor_occupancy
+      - binary_sensor.kitchen_occupancy
 #    - presence:
 #      - device_tracker.david_fused in [home, just_arrived]
 #      - device_tracker.aysylu_fused in [home, just_arrived]
@@ -260,6 +277,7 @@ kitchen_lights:
       state: turned_off
     - presence:
       - binary_sensor.kitchen_occupancy
+      - binary_sensor.main_floor_occupancy
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -274,8 +292,9 @@ downstairs_lights:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - device_tracker.david_fused in [home, just_arrived]
-      - device_tracker.aysylu_fused in [home, just_arrived]
+      - binary_sensor.basement_occupancy
+      #- device_tracker.david_fused in [home, just_arrived]
+      #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.downstairs
 
@@ -325,6 +344,12 @@ bedroom_far_light:
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_far
   #debug: True
+
+garage_light:
+  class: LightController2
+  module: lights2
+  light: light.neopixel_light
+  debug: True
 
 basic_thermostat:
   class: BasicThermostatController
