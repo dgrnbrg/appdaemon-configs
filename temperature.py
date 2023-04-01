@@ -241,6 +241,7 @@ class BasicThermostatController(hass.Hass):
                 self.next_target = current_temperature + self.max_diff_for_heat_pump
                 self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.next_target)
                 self.climb_target_handle = self.listen_state(self.climb_heat_callback, self.thermostat, attribute='current_temperature')
+                self.climb_cancel_watch_handle = self.listen_state(self.cancel_climb_watch_callback, self.thermostat, attribute='temperature')
                 self.log(f"Climbing heat up to {target_temp}, initially setting to {self.next_target}")
             else:
                 self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
@@ -259,15 +260,19 @@ class BasicThermostatController(hass.Hass):
             if reason:
                 self.log(f"canceling climb mode: {reason}")
             self.cancel_listen_state(self.climb_target_handle)
+            self.cancel_listen_state(self.climb_cancel_watch_handle)
             del self.climb_target
             del self.climb_target_handle
+            del self.climb_cancel_watch_handle
 
+    @ad.app_lock
+    def cancel_climb_watch_callback(self, entity, attr, old, new, kwargs):
+        if new != self.next_target:
+            self.cancel_climb_heat_mode("thermostat changed by something else")
+            self.log(f"Aborting climb heat mode because it appears that the temperature has been changed to {new}, while the last automatic climb setting was {self.next_target}")
 
     @ad.app_lock
     def climb_heat_callback(self, entity, attr, old, new, kwargs):
-        if new != self.next_target:
-            self.cancel_climb_heat_mode()
-            self.log(f"Aborting climb heat mode because it appears that the temperature has been changed to {new}, while the last automatic climb setting was {self.next_target}")
         self.next_target = min(self.climb_target, new + self.max_diff_for_heat_pump)
         self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.next_target)
         if self.next_target >= self.climb_target:
