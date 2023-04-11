@@ -295,6 +295,10 @@ class BasicThermostatController(hass.Hass):
                 break
         noonish_temp = float(noonish_forecast['temperature'])
         #print(f"looking at {self.thermostat} {self.get_state(self.thermostat)}")
+        if self.get_state(self.thermostat) == 'unavailable':
+            self.log(f"Thermostat was unavailable, retrying in 5 minutes...")
+            self.run_in(self.determine_if_warm_or_cool_day, 300)
+            return
         self.today_conf = self.args[self.get_state(self.thermostat)].copy()
         #print(f"today_conf = {self.today_conf}")
         if noonish_temp >= self.today_conf['outside_splitpoint']:
