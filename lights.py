@@ -315,7 +315,11 @@ class LightController(hass.Hass):
                     data['service'] = 'turn_on'
                 else:
                     self.log(f"Unexpected state for {self.light}: {cur_state}")
+            if self.debug_enabled:
+                self.log(f"saw {self.light} [domain==light is {data['domain'] == 'light'}] [service==turn_on is {data['service'] == 'turn_on'}]")
             if data['domain'] == 'light' and data['service'] == 'turn_on':
+                if self.debug_enabled:
+                    self.log(f"saw {self.light} turn on")
                 if 'brightness_pct' in service_data or 'brightness' in service_data:
                     if 'brightness_pct' in service_data:
                         new_brightness = service_data['brightness_pct']
@@ -344,13 +348,20 @@ class LightController(hass.Hass):
                         self.update_light({})
                     #self.log(f'saw a change in color temp (kelvin). delta is {delta}. state is now {self.state}')
                 else:
-                    #self.log(f"saw {self.light} turn on without settings.")
+                    if self.debug_enabled:
+                        self.log(f"saw {self.light} turn on without settings.")
                     if self.state == 'manual_off':
-                        #self.log(f"from on: Returning to automatic {service_data}.")
+                        if self.debug_enabled:
+                            self.log(f"from on: Returning to automatic {service_data}.")
                         self.state = 'returning'
+                        self.update_light({})
                     elif self.state == 'off' or isinstance(self.state, int) and self.triggers[self.state]['target_state'] == 'turned_off': # it turned on but it should be off
-                        #self.log(f"saw an unexpected change to on, going to manual")
+                        if self.debug_enabled:
+                            self.log(f"saw an unexpected change to on, going to manual")
                         self.state = 'manual'
+                        # When we turn on to manual mode with no other settings, we'll start with the current settings
+                        light_ent = self.get_entity(self.light)
+                        light_ent.turn_on(kelvin=self.color_temp, brightness_pct=self.brightness)
                         self.update_light({})
             # check if we did a turn off, and 
             elif data['domain'] == 'light' and data['service'] == 'turn_off' :
