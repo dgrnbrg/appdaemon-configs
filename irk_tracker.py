@@ -354,7 +354,7 @@ class IrkTracker(hass.Hass):
                     if self.get_state(sensor) == 'on':
                         in_room_is_eligible = True
                         break
-            #self.log(f"in_room={in_room}, presence={self.room_presence.keys()}, eligble={in_room_is_eligible}")
+            #self.log(f"device={device}, in_room={in_room}, eligble={in_room_is_eligible}")
             # This statement is saying that:
             # If the room is occupied, and it's different than the last place we had them, we can update
             # If the room is occupied, and we think they are away, if they're home now, we'll resume updating their room tracker
@@ -453,7 +453,7 @@ class IrkTracker(hass.Hass):
                 # Look over the candidate clarifiers, which is everything with a higher signal strength & the next one
                 clarifying_sources = []
                 for j, (c_rssi, c_count, c_source) in enumerate(weighted_votes[0:min(i+2, len(weighted_votes))]):
-                    if j != i: # we can't self-clarify, of course
+                    if j != i and c_rssi < rssi * self.min_superplurality: # we can't self-clarify, of course, and we should only clarify if they're similar in strength (TODO is this true)
                         clarifying_sources.append((j, (c_rssi, c_count, c_source)))
                 # map each clarifying source to rssi + room
                 resolved_clarifying_sources = []
@@ -478,6 +478,8 @@ class IrkTracker(hass.Hass):
                     if c_rssi < nonmatching_min_rssi * self.min_superplurality:
                         # winner
                         return (c_rssi, c_count, c_room)
+                if 'default' in alias:
+                    return (rssi, count, alias['default'])
             else:
                 raise ValueError(f'invalid alias config: {alias}')
         for i, (rssi, count, source) in enumerate(weighted_votes):
