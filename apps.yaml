@@ -221,6 +221,7 @@ aysylu_office_lights:
       delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.aysylu_office_ceiling
+    #debug: true
 
 aysylu_office_lamp:
   class: LightController
@@ -232,6 +233,7 @@ aysylu_office_lamp:
       delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.aysylu_office_lamp
+    #  debug: true
 
 stairs_lights:
   class: LightController
@@ -366,7 +368,7 @@ basic_thermostat:
     away: 64
   cool:
     outside_splitpoint: 70
-    warm_day: 72
+    warm_day: 74
     cool_day: 72
     sleep: 68
     away: 77
@@ -400,7 +402,10 @@ in_bed_tracker:
       distance: sensor.aysylu_iphone_calc_distance
       bed_tracker: input_boolean.aysylu_in_bed
   bed_tracker: input_boolean.dna_sleeping
-  bed_presence: binary_sensor.someone_in_bed
+  bed_presence:
+    default: binary_sensor.someone_in_bed
+    david: binary_sensor.david_s_side
+    aysylu: binary_sensor.aysylu_s_side
   bedtime_start: '21:00:00'
   bedtime_end: '5:00:00'
   home_ssids:

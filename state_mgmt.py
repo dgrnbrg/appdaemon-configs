@@ -22,14 +22,18 @@ class BedStateManager(hass.Hass):
         self.persons_asleep = {}
         self.persons_away = {}
         runtime = datetime.time(0, 0, 0)
+        self.bed_presence = {}
+        bp_cfg = self.args['bed_presence']
         for person, cfg in self.args['iphones'].items():
             self.listen_state(self.sleep_check_cb, cfg['charging'], new=lambda x: x.lower() in ['charging', 'full'], immediate=True, person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
             self.listen_state(self.sleep_check_cb, cfg['ssid'], new=lambda x: x in self.args['home_ssids'], person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
-            self.listen_state(self.sleep_check_cb, self.args['bed_presence'], new='on', person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
+            self.bed_presence[person] = bp_cfg.get(person, bp_cfg['default']) if not isinstance(bp_cfg, str) else bp_cfg
+            self.listen_state(self.sleep_check_cb, self.bed_presence[person], new='on', person=person, cfg=cfg, constrain_start_time=self.args['bedtime_start'], constrain_end_time=self.args['bedtime_end'])
             self.persons_asleep[person] = False
             self.persons_away[person] = False
             self.run_hourly(self.check_far_away, runtime, person=person, cfg=cfg)
             self.run_in(self.check_far_away, delay=0, person=person, cfg=cfg)
+        self.log(f"bed presence cfg worked out to {self.bed_presence}")
 
     def check_far_away(self, kwargs):
         person = kwargs['person']
@@ -70,9 +74,9 @@ class BedStateManager(hass.Hass):
     def sleep_check_cb(self, entity, attr, old, new, kwargs):
         person = kwargs['person']
         cfg = kwargs['cfg']
-        if self.get_state(self.args['bed_presence']) == 'off':
+        if self.get_state(self.bed_presence[person]) == 'off':
             # someone must be in bed
-            self.log(f"saw {entity} become {new}, but not activating sleep for {person} because no one is in bed")
+            self.log(f"saw {entity} become {new}, but not activating sleep for {person} because {self.bed_presence[person]} isn't in bed")
             return
         if self.get_state(cfg['ssid']) not in self.args['home_ssids']:
             # we must be connected to home wifi
