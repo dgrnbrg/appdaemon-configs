@@ -163,6 +163,9 @@ class BasicThermostatController(hass.Hass):
         self.next_target = 0 # used for climb heat mode
         if 'sleep_fallback_time' in self.args:
             self.run_daily(self.sleep_time_fallback, self.args['sleep_fallback_time'])
+        # The next things allow us to change from heating to cooling and reprogram away setbacks, etc
+        self.today_conf_based_on_state = None
+        self.listen_state(self.heating_mode_changed, self.thermostat)
 
     def setup_listen_state(self, cb, present_state, absent_state, entity, **kwargs):
         cur_state = self.get_state(entity)
@@ -282,6 +285,13 @@ class BasicThermostatController(hass.Hass):
             self.log(f"Climbing heat up to {self.climb_target}, since we reached {new} we're bumping to {self.next_target}")
 
     @ad.app_lock
+    def heating_mode_changed(self, entity, attr, old, new, kwargs):
+        self.log(f"heating mode changed: {entity}.{attr}' was '{old}', now '{new}'")
+        if self.today_conf_based_on_state != new:
+            self.log(f"Now will redetermine warm or cool day")
+            self.determine_if_warm_or_cool_day({})
+
+    @ad.app_lock
     def determine_if_warm_or_cool_day(self, kwargs):
         # get temp at noon
         forecasts = self.get_state(self.weather_ent, attribute="forecast")
@@ -299,7 +309,8 @@ class BasicThermostatController(hass.Hass):
             self.log(f"Thermostat was unavailable, retrying in 5 minutes...")
             self.run_in(self.determine_if_warm_or_cool_day, 300)
             return
-        self.today_conf = self.args[self.get_state(self.thermostat)].copy()
+        self.today_conf_based_on_state = self.get_state(self.thermostat)
+        self.today_conf = self.args[self.today_conf_based_on_state].copy()
         #print(f"today_conf = {self.today_conf}")
         if noonish_temp >= self.today_conf['outside_splitpoint']:
             target_temp = self.today_conf['warm_day']
