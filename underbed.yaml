@@ -16,24 +16,24 @@ ota:
 
 
 light:
-  - platform: fastled_clockless
-    rgb_order: GRB
-    chipset: WS2812B
-    pin: GPIO25
+# - platform: fastled_clockless
+#   rgb_order: GRB
+#   chipset: WS2812B
+#   pin: GPIO25
+#   num_leds: 192
+#   name: "Under Bed Light"
+#   id: under_bed_light
+#   color_correct: [50%, 50%, 50%]
+  - platform: neopixelbus
+    type: GRB
+    variant: WS2812
+    pin: GPIO23
+#   method:
+#     type: esp32_rmt
     num_leds: 192
     name: "Under Bed Light"
     id: under_bed_light
     color_correct: [50%, 50%, 50%]
-# - platform: neopixelbus
-#   type: GRB
-#   variant: WS2812
-#   pin: GPIO25
-#   method:
-#     type: esp32_rmt
-#   num_leds: 192
-#   name: "Under Bed Light"
-#   id: under_bed_light
-#   color_correct: [30%, 30%, 30%]
 esp32_touch:
   #setup_mode: true
   # low_voltage_reference: 0.5V
@@ -50,7 +50,7 @@ binary_sensor:
    - platform: esp32_touch
      name: "Middle Pillow"
      pin: GPIO2
-     threshold: 6
+     threshold: 5
      id: middle_pillow
    - platform: esp32_touch
      name: "Aysylu Feet"
@@ -161,7 +161,7 @@ binary_sensor:
                   transition_length: 0s
    - platform: gpio
      pin:
-      number: GPIO18
+      number: GPIO21
       mode:
         input: true
      name: "Aysylu PIR Under Bed"
