@@ -1,0 +1,283 @@
+substitutions:
+  friendly_name: "Under Bed"
+  device_name: "underbed"
+
+packages:
+  base: !include device-base.yaml
+  irk_locator: !include irk_locator.yaml
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+
+ota:
+
+
+light:
+  - platform: fastled_clockless
+    rgb_order: GRB
+    chipset: WS2812B
+    pin: GPIO25
+    num_leds: 192
+    name: "Under Bed Light"
+    id: under_bed_light
+    color_correct: [50%, 50%, 50%]
+# - platform: neopixelbus
+#   type: GRB
+#   variant: WS2812
+#   pin: GPIO25
+#   method:
+#     type: esp32_rmt
+#   num_leds: 192
+#   name: "Under Bed Light"
+#   id: under_bed_light
+#   color_correct: [30%, 30%, 30%]
+esp32_touch:
+  #setup_mode: true
+  # low_voltage_reference: 0.5V
+  # high_voltage_reference: 2.4V
+  # voltage_attenuation: 1.5V
+  # iir_filter: 50ms
+
+binary_sensor:
+   - platform: esp32_touch
+     name: "David Feet"
+     pin: GPIO15
+     threshold: 8
+     id: david_feet
+   - platform: esp32_touch
+     name: "Middle Pillow"
+     pin: GPIO2
+     threshold: 6
+     id: middle_pillow
+   - platform: esp32_touch
+     name: "Aysylu Feet"
+     pin: GPIO4
+     threshold: 6
+     id: aysylu_feet
+   - platform: esp32_touch
+     name: "David Pillow"
+     pin: GPIO12
+     threshold: 8
+     id: david_pillow
+   - platform: esp32_touch
+     name: "Aysylu Pillow"
+     pin: GPIO13
+     threshold: 6
+     id: aysylu_pillow
+   - platform: esp32_touch
+     name: "Middle Feet"
+     pin: GPIO14
+     threshold: 6
+     id: middle_feet
+   - platform: template
+     name: "Aysylu's Side"
+     id: aysylu_side
+     lambda: |-
+       if (id(aysylu_feet).state ||
+           id(aysylu_pillow).state) {
+         return true;
+       } else {
+         return false;
+       }
+     filters:
+        - delayed_off: 30s
+   - platform: template
+     name: "David's Side"
+     id: david_side
+     lambda: |-
+       if (id(david_feet).state ||
+           id(david_pillow).state) {
+         return true;
+       } else {
+         return false;
+       }
+     filters:
+        - delayed_off: 30s
+   - platform: template
+     name: "Middle of Bed"
+     id: middle_side
+     lambda: |-
+       if (id(middle_feet).state ||
+           id(middle_pillow).state) {
+         return true;
+       } else {
+         return false;
+       }
+     filters:
+        - delayed_off: 30s
+   - platform: template
+     name: "Someone in Bed"
+     lambda: |-
+        if (id(david_side).state ||
+            id(middle_side).state ||
+            id(aysylu_side).state) {
+          return true;
+        } else {
+          return false;
+        }
+   - platform: template
+     name: "Both in Bed"
+     lambda: |-
+        if ((id(david_side).state &&
+              id(middle_side).state) ||
+            (id(aysylu_side).state &&
+              id(middle_side).state) ||
+            (id(aysylu_side).state &&
+              id(david_side).state)) {
+          return true;
+        } else {
+          return false;
+        }
+   - platform: gpio
+     pin:
+        number: GPIO19
+        mode:
+          input: true
+     name: "David PIR Under Bed"
+     filters:
+      - delayed_off: 30s
+     on_press:
+       then:
+        - if:
+            condition:
+              binary_sensor.is_on: ha_dna_sleeping
+            then:
+              - light.turn_on:
+                  id: under_bed_light
+                  brightness: 65%
+                  red: 100%
+                  green: 0%
+                  blue: 0%
+                  transition_length: 3s
+              - wait_until:
+                  condition:
+                    binary_sensor.is_on: david_side
+                  timeout: 300s
+              - light.turn_off:
+                  id: under_bed_light
+                  transition_length: 0s
+   - platform: gpio
+     pin:
+      number: GPIO18
+      mode:
+        input: true
+     name: "Aysylu PIR Under Bed"
+     filters:
+        - delayed_off: 30s
+     on_press:
+       then:
+        - if:
+            condition:
+              binary_sensor.is_on: ha_dna_sleeping
+            then:
+              - light.turn_on:
+                  id: under_bed_light
+                  brightness: 65%
+                  red: 100%
+                  green: 0%
+                  blue: 0%
+                  transition_length: 3s
+              - wait_until:
+                  condition:
+                    binary_sensor.is_on: aysylu_side
+                  timeout: 300s
+              - light.turn_off:
+                  id: under_bed_light
+                  transition_length: 0s
+   - platform: homeassistant
+     entity_id: input_boolean.dna_sleeping
+     id: ha_dna_sleeping
+
+
+
+
+
+
+# number:
+#   - platform: template
+#     name: David Pillow Level
+#     id: david_pillow_level
+#     entity_category: config
+#     min_value: 1
+#     max_value: 20
+#     initial_value: 6
+#     optimistic: true
+#     step: 1
+#     restore_value: true
+#     mode: slider
+#     set_action:
+#       - lambda:  |-
+#           id(david_pillow).set_threshold(id(david_pillow_level).state);
+#   - platform: template
+#     name: David Feet Level
+#     id: david_feet_level
+#     entity_category: config
+#     min_value: 1
+#     max_value: 20
+#     initial_value: 6
+#     optimistic: true
+#     step: 1
+#     restore_value: true
+#     mode: slider
+#     set_action:
+#       - lambda:  |-
+#           id(david_feet).set_threshold(id(david_feet_level).state);
+#   - platform: template
+#     name: Aysylu Pillow Level
+#     id: aysylu_pillow_level
+#     entity_category: config
+#     min_value: 1
+#     max_value: 20
+#     initial_value: 6
+#     optimistic: true
+#     step: 1
+#     restore_value: true
+#     mode: slider
+#     set_action:
+#       - lambda:  |-
+#           id(aysylu_pillow).set_threshold(id(aysylu_pillow_level).state);
+#   - platform: template
+#     name: Aysylu Feet Level
+#     id: aysylu_feet_level
+#     entity_category: config
+#     min_value: 1
+#     max_value: 20
+#     initial_value: 6
+#     optimistic: true
+#     step: 1
+#     restore_value: true
+#     mode: slider
+#     set_action:
+#       - lambda:  |-
+#           id(aysylu_feet).set_threshold(id(aysylu_feet_level).state);
+#   - platform: template
+#     name: Middle Pillow Level
+#     id: middle_pillow_level
+#     entity_category: config
+#     min_value: 1
+#     max_value: 20
+#     initial_value: 6
+#     optimistic: true
+#     step: 1
+#     restore_value: true
+#     mode: slider
+#     set_action:
+#       - lambda:  |-
+#           id(middle_pillow).set_threshold(id(middle_pillow_level).state);
+#   - platform: template
+#     name: Middle Feet Level
+#     id: middle_feet_level
+#     entity_category: config
+#     min_value: 1
+#     max_value: 20
+#     initial_value: 6
+#     optimistic: true
+#     step: 1
+#     restore_value: true
+#     mode: slider
+#     set_action:
+#       - lambda:  |-
+#           id(middle_feet).set_threshold(id(middle_feet_level).state);
