@@ -15,6 +15,143 @@ class EveningTracker(hass.Hass):
     def dusk_cb(self, kwargs):
         self.turn_on(self.args['tracker'])
 
+class RoomAugmenter(hass.Hass):
+
+    def get_arg_as_list(self, name):
+        x = self.args.get(name, [])
+        if isinstance(x, str):
+            x = [x]
+        return x
+
+    def initialize(self):
+        self.current_state = 'unknown'
+        self.retaining_irks = []
+        self.sensor_id = self.args['sensor_id']
+        self.room_names = set(self.get_arg_as_list('room'))
+        self.entity_states = {}
+        self.tracker_ents = self.get_arg_as_list('irk_trackers')
+        for tracker in self.tracker_ents:
+            self.log(f"listening to {tracker}")
+            self.listen_state(self.irk_tracked, tracker, duration=self.args.get('irk_stability_duration', 30))
+            self.entity_states[tracker] = self.get_state(tracker)
+        self.opening_ents = self.get_arg_as_list('openings')
+        for opening in self.opening_ents:
+            self.log(f"listening to {opening}")
+            self.listen_state(self.opening_state, opening, immediate=True)
+            self.entity_states[opening] = 'unknown'
+        self.border_ents = self.get_arg_as_list('border')
+        for border in self.border_ents:
+            self.log(f"listening to {border}")
+            self.listen_state(self.border_crossed_state, border, immediate=True)
+            self.entity_states[border] = 'unknown'
+        self.interior_ents = self.get_arg_as_list('interior')
+        for interior in self.interior_ents:
+            self.log(f"listening to {interior}")
+            self.listen_state(self.interior_detected_state, interior, immediate=True)
+            self.entity_states[interior] = 'unknown'
+        if self.interior_ents and not self.border_ents:
+            raise ValueError('If you only have activities and no borders, make them all borders and zero acivities please')
+        ent = self.get_entity(self.sensor_id)
+        ent.set_state(state = 'on' if self.any_borders_on() or self.any_interior_on() else 'off', attributes={'current_state': 'init'})
+        self.log('finish init')
+
+    def border_crossed_state(self, entity, attr, old, new, kwargs):
+        self.entity_states[entity] = new
+        if self.current_state == 'interior':
+            return # higher priority, so disregard
+        if new == 'on':
+            self.update_state('border on')
+        elif new == 'off' and self.opening_is_open():
+            self.update_state('border off')
+        self.log(f'border {entity}={new} {self.current_state}')
+
+    def any_borders_on(self):
+        for b in self.border_ents:
+            if self.entity_states[b] == 'on':
+                return True
+        return False
+
+    def interior_detected_state(self, entity, attr, old, new, kwargs):
+        self.entity_states[entity] = new
+        if new == 'on':
+            self.update_state('interior on')
+        elif new == 'off':
+            self.update_state('interior off')
+        self.log(f'interior {entity}={new} {self.current_state}')
+
+    def opening_is_open(self):
+        if not self.opening_ents:
+            return True
+        for opening in self.opening_ents:
+            if self.entity_states[opening] == 'on':
+                return True
+        return False
+
+    def opening_state(self, entity, attr, old, new, kwargs):
+        self.entity_states[entity] = new
+        if new == 'on':
+            self.update_state('just opened')
+        if new == 'off':
+            self.update_state('just closed')
+
+    def irk_tracked(self, entity, attr, old, new, kwargs):
+        self.entity_states[entity] = new
+        if new not in self.room_names:
+            if entity in self.retaining_irks:
+                self.retaining_irks.remove(entity)
+            if not self.retaining_irks:
+                self.update_state('no retaining irks')
+        self.log(f'irk {entity}={new} {self.current_state}')
+
+    def any_interior_on(self):
+        for i in self.interior_ents:
+            if self.entity_states[i] == 'on':
+                return True
+        return False
+
+    def update_state(self, new_state):
+        old_state = self.current_state
+        publish_state = None
+        if new_state == 'interior on':
+            # Activity in the interior is retained until we see possible exit motion
+            self.current_state = 'interior on'
+            publish_state = 'on'
+        elif new_state == 'interior off':
+            # if any borders are on, we downgrade to them. otherwise, stay in interior off
+            if self.any_borders_on():
+                self.current_state = 'border on'
+            elif not self.any_interior_on() and old_state != 'unknown':
+                self.current_state = 'interior off'
+            # we only copy the existing state here, b/c it should already be on (or off at initialization)
+            publish_state = self.get_state(self.sensor_id)
+        elif new_state == 'border on':
+            # If we're not in an interior state, we'll move to the border state
+            if not self.current_state.startswith('interior '):
+                self.current_state = 'border on'
+                publish_state = 'on'
+        elif new_state == 'border off' and self.current_state == 'border on':
+            if self.opening_is_open():
+                self.current_state = 'off'
+                self.retaining_irks = [x for x in self.tracker_ents if self.entity_states[x] in self.room_names]
+                self.log(f'border on->off, retain = {self.retaining_irks}, rooms={self.room_names}, trackers={self.tracker_ents} tracker_states = {[self.entity_states[x] for x in self.tracker_ents]}')
+                if self.retaining_irks:
+                    self.current_state = f'retained by {self.retaining_irks}'
+                    publish_state = 'on'
+                else:
+                    self.current_state = 'off'
+                    publish_state = 'off'
+            else:
+                self.current_state = 'trapped'
+                publish_state = 'on'
+        elif new_state == 'no retaining irks' and self.current_state.startswith('retained by '):
+            self.current_state = 'off'
+            publish_state = 'off'
+        self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
+        if publish_state is not None:
+            ent = self.get_entity(self.sensor_id)
+            ent.set_state(state = publish_state, attributes={'current_state': self.current_state})
+
+
 class BedStateManager(hass.Hass):
     def initialize(self):
         self.listen_event(self.ios_wake_cb, "ios.action_fired", actionName=self.args['wake_event'])

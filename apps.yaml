@@ -139,8 +139,7 @@ living_room_lights:
       max_brightness: 30%
       transition: 8
     - presence:
-      - binary_sensor.main_floor_occupancy
-      - binary_sensor.kitchen_occupancy
+      - binary_sensor.main_floor_presence_augmented
 #    - presence:
 #      - device_tracker.david_fused in [home, just_arrived]
 #      - device_tracker.aysylu_fused in [home, just_arrived]
@@ -194,8 +193,7 @@ dining_room_lights:
       state: turned_off
       transition: 8
     - presence:
-      - binary_sensor.main_floor_occupancy
-      - binary_sensor.kitchen_occupancy
+      - binary_sensor.main_floor_presence_augmented
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -278,8 +276,7 @@ kitchen_lights:
       #- input_text.test_helper_text == sleep
       state: turned_off
     - presence:
-      - binary_sensor.kitchen_occupancy
-      - binary_sensor.main_floor_occupancy
+      - binary_sensor.main_floor_presence_augmented
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -294,7 +291,8 @@ downstairs_lights:
       - input_boolean.david_in_bed
       state: turned_off
     - presence:
-      - binary_sensor.basement_occupancy
+      - binary_sensor.downstairs_presence_augmented
+      #- binary_sensor.basement_occupancy
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -309,6 +307,16 @@ downstairs_geoleaf_light:
       - binary_sensor.supercomputer_power_status != unavailable
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.wled
+
+#underbed_light:
+#  class: LightController
+#  module: lights
+#  triggers:
+#    - presence:
+#      - binary_sensor.bedroom_occupancy
+#      delay_off: 30
+#  adaptive_lighting: switch.adaptive_lighting_default
+#  light: light.under_bed_light
 
 bedroom_near_light:
   class: LightController
@@ -432,3 +440,25 @@ parking_booker:
   parking_pass_email_sensor: sensor.port_washington_parking_pass
   plates:
     - KTT9990
+
+basement_presence:
+  class: RoomAugmenter
+  module: state_mgmt
+  sensor_id: binary_sensor.downstairs_presence_augmented
+  irk_trackers:
+    - device_tracker.david_irk
+    - device_tracker.aysylu_irk
+  interior: binary_sensor.computer_area_occupancy_detected
+  border: binary_sensor.garage_entrance_occupancy_detected
+  room: downstairs
+
+main_floor_presence:
+  class: RoomAugmenter
+  module: state_mgmt
+  sensor_id: binary_sensor.main_floor_presence_augmented
+  irk_trackers:
+    - device_tracker.david_irk
+    - device_tracker.aysylu_irk
+  interior: binary_sensor.main_floor_occupancy
+  border: binary_sensor.kitchen_occupancy
+  room: main-floor
