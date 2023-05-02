@@ -24,6 +24,7 @@ class RoomAugmenter(hass.Hass):
         return x
 
     def initialize(self):
+        self.debug_mode = self.args.get('debug', False)
         self.current_state = 'unknown'
         self.retaining_irks = []
         self.sensor_id = self.args['sensor_id']
@@ -31,29 +32,34 @@ class RoomAugmenter(hass.Hass):
         self.entity_states = {}
         self.tracker_ents = self.get_arg_as_list('irk_trackers')
         for tracker in self.tracker_ents:
-            self.log(f"listening to {tracker}")
+            if self.debug_mode:
+                self.log(f"listening to {tracker}")
             self.listen_state(self.irk_tracked, tracker, duration=self.args.get('irk_stability_duration', 30))
             self.entity_states[tracker] = self.get_state(tracker)
         self.opening_ents = self.get_arg_as_list('openings')
         for opening in self.opening_ents:
-            self.log(f"listening to {opening}")
+            if self.debug_mode:
+                self.log(f"listening to {opening}")
             self.listen_state(self.opening_state, opening, immediate=True)
             self.entity_states[opening] = 'unknown'
         self.border_ents = self.get_arg_as_list('border')
         for border in self.border_ents:
-            self.log(f"listening to {border}")
+            if self.debug_mode:
+                self.log(f"listening to {border}")
             self.listen_state(self.border_crossed_state, border, immediate=True)
             self.entity_states[border] = 'unknown'
         self.interior_ents = self.get_arg_as_list('interior')
         for interior in self.interior_ents:
-            self.log(f"listening to {interior}")
+            if self.debug_mode:
+                self.log(f"listening to {interior}")
             self.listen_state(self.interior_detected_state, interior, immediate=True)
             self.entity_states[interior] = 'unknown'
         if self.interior_ents and not self.border_ents:
             raise ValueError('If you only have activities and no borders, make them all borders and zero acivities please')
         ent = self.get_entity(self.sensor_id)
         ent.set_state(state = 'on' if self.any_borders_on() or self.any_interior_on() else 'off', attributes={'current_state': 'init'})
-        self.log('finish init')
+        if self.debug_mode:
+            self.log('finish init')
 
     def border_crossed_state(self, entity, attr, old, new, kwargs):
         self.entity_states[entity] = new
@@ -63,7 +69,8 @@ class RoomAugmenter(hass.Hass):
             self.update_state('border on')
         elif new == 'off' and self.opening_is_open():
             self.update_state('border off')
-        self.log(f'border {entity}={new} {self.current_state}')
+        if self.debug_mode:
+            self.log(f'border {entity}={new} {self.current_state}')
 
     def any_borders_on(self):
         for b in self.border_ents:
@@ -77,7 +84,8 @@ class RoomAugmenter(hass.Hass):
             self.update_state('interior on')
         elif new == 'off':
             self.update_state('interior off')
-        self.log(f'interior {entity}={new} {self.current_state}')
+        if self.debug_mode:
+            self.log(f'interior {entity}={new} {self.current_state}')
 
     def opening_is_open(self):
         if not self.opening_ents:
@@ -101,7 +109,8 @@ class RoomAugmenter(hass.Hass):
                 self.retaining_irks.remove(entity)
             if not self.retaining_irks:
                 self.update_state('no retaining irks')
-        self.log(f'irk {entity}={new} {self.current_state}')
+        if self.debug_mode:
+            self.log(f'irk {entity}={new} {self.current_state}')
 
     def any_interior_on(self):
         for i in self.interior_ents:
@@ -133,7 +142,8 @@ class RoomAugmenter(hass.Hass):
             if self.opening_is_open():
                 self.current_state = 'off'
                 self.retaining_irks = [x for x in self.tracker_ents if self.entity_states[x] in self.room_names]
-                self.log(f'border on->off, retain = {self.retaining_irks}, rooms={self.room_names}, trackers={self.tracker_ents} tracker_states = {[self.entity_states[x] for x in self.tracker_ents]}')
+                if self.debug_mode:
+                    self.log(f'border on->off, retain = {self.retaining_irks}, rooms={self.room_names}, trackers={self.tracker_ents} tracker_states = {[self.entity_states[x] for x in self.tracker_ents]}')
                 if self.retaining_irks:
                     self.current_state = f'retained by {self.retaining_irks}'
                     publish_state = 'on'
@@ -146,7 +156,8 @@ class RoomAugmenter(hass.Hass):
         elif new_state == 'no retaining irks' and self.current_state.startswith('retained by '):
             self.current_state = 'off'
             publish_state = 'off'
-        self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
+        if self.debug_mode:
+            self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
         if publish_state is not None:
             ent = self.get_entity(self.sensor_id)
             ent.set_state(state = publish_state, attributes={'current_state': self.current_state})
