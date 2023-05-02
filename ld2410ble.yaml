@@ -24,10 +24,14 @@ esp32:
 script:
   - id: ${ld2410_id}_start_after_delay
     then:
-      # random 1-15s delay
-      - delay: !lambda  'int d = (rand() % 14000) + 1000; ESP_LOGD("${ld2410_id}", "starting after %d millis", d); return d;'
-      - lambda: |-
-          id(${ld2410_id})->set_enabled(true);
+      - if:
+          condition:
+            switch.is_on: ${ld2410_id}_enable_switch
+          then:
+            # random 1-15s delay
+            - delay: !lambda  'int d = (rand() % 14000) + 1000; ESP_LOGD("${ld2410_id}", "starting after %d millis", d); return d;'
+            - lambda: |-
+                id(${ld2410_id})->set_enabled(true);
 
 ble_client:
   - mac_address: ${mac_address}
@@ -71,39 +75,46 @@ ble_client:
             }
             data.insert(data.end(), postamble.begin(), postamble.end());
             return data;
-      - delay: 100ms
+      - delay: 250ms
       - ble_client.ble_write:
           id: ${ld2410_id}
           service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
           characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
           # enable config
           value: [0xfd, 0xfc, 0xfb, 0xfa, 0x04, 0x00, 0xff, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01]
-      - delay: 100ms
+      - delay: 250ms
       - ble_client.ble_write:
           id: ${ld2410_id}
           service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
           characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
           # enable engineering mode
           value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00b, 0x00, 0x04, 0x03, 0x02, 0x01]
-      - delay: 100ms
+      - delay: 250ms
       - ble_client.ble_write:
           id: ${ld2410_id}
           service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
           characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
           # diable config
           value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0xfe, 0x00, 0x04, 0x03, 0x02, 0x01]
-      - delay: 100ms
+      - delay: 250ms
       - logger.log:
           format: "completed ble connection process, waiting for updates..."
           tag: "${ld2410_id}_connect"
+      - lambda: |-
+          auto *x = id(${ld2410_id});
+          //auto *chr = x->get_characteristic(ESPBTUUID::from_raw());
+          //auto handle = chr->handle;
+          auto handle = id(${ld2410_id}_internal_parser)->handle;
+          auto status = esp_ble_gattc_register_for_notify(x->get_gattc_if(), x->get_remote_bda(), handle);
+          ESP_LOGD("${ld2410_id}_notify", "registered for notify, handle = %d, status = %d", handle, status);
       # automatically try to toggle if it didn't connect
-      - delay: 10s # we give it 10 seconds to connect
+      - delay: 20s # we give it 20 seconds to connect
       - if:
           condition:
             binary_sensor.is_off: ${ld2410_id}_ble_connected
           then: # we need to toggle it
             - logger.log:
-                format: "Failed to connect to push updates, retrying..."
+                format: "Failed to connect within 20s to push updates, retrying..."
                 tag: "${ld2410_id}_connect"
             - switch.turn_off: "${ld2410_id}_enable_switch_internal"
             - script.execute: ${ld2410_id}_start_after_delay
@@ -150,6 +161,7 @@ binary_sensor:
   - platform: template
     name: "${ld2410_name}LD2410 Connected"
     id: ${ld2410_id}_ble_connected
+    device_class: connectivity
     on_release:
       then:
         - if:
@@ -207,7 +219,7 @@ sensor:
     service_uuid: '0000fff0-0000-1000-8000-00805f9b34fb'
     characteristic_uuid: '0000fff1-0000-1000-8000-00805f9b34fb'
     update_interval: never
-    notify: True
+    notify: False
     internal: True
     filters:
     - throttle: ${sensor_throttle}
