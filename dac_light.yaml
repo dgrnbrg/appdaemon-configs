@@ -1,0 +1,86 @@
+substitutions:
+  clamp_max_power: "1"
+
+dac7678:
+  - address: ${address}
+    id: dac7678_${id}_hub
+    internal_reference: true
+
+output:
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 0
+    id: dac7678_${id}_0
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 1
+    id: dac7678_${id}_1
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 2
+    id: dac7678_${id}_2
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 3
+    id: dac7678_${id}_3
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 4
+    id: dac7678_${id}_4
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 5
+    id: dac7678_${id}_5
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 6
+    id: dac7678_${id}_6_real
+    max_power: ${clamp_max_power}
+  - platform: dac7678
+    dac7678_id: dac7678_${id}_hub
+    channel: 7
+    id: dac7678_${id}_7
+    max_power: ${clamp_max_power}
+  - platform: template
+    id: dac7678_${id}_6
+    type: float
+    write_action:
+      - output.set_level:
+          id: dac7678_${id}_6_real
+          level: !lambda ESP_LOGD("template_intercept", "id 6 has level %f", state); return state;
+
+light:
+  - platform: color_temperature
+    name: "${light1}"
+    color_temperature: dac7678_${id}_4
+    brightness: dac7678_${id}_6
+    cold_white_color_temperature: ${light1_warm_ct}
+    warm_white_color_temperature: ${light1_cool_ct}
+    gamma_correct: 1
+  - platform: color_temperature
+    name: "${light2}"
+    color_temperature: dac7678_${id}_0
+    brightness: dac7678_${id}_2
+    cold_white_color_temperature: ${light2_warm_ct}
+    warm_white_color_temperature: ${light2_cool_ct}
+    gamma_correct: 1
+  - platform: color_temperature
+    name: "${light3}"
+    color_temperature: dac7678_${id}_3
+    brightness: dac7678_${id}_1
+    cold_white_color_temperature: ${light3_warm_ct}
+    warm_white_color_temperature: ${light3_cool_ct}
+    gamma_correct: 1
+  - platform: color_temperature
+    name: "${light4}"
+    color_temperature: dac7678_${id}_7
+    brightness: dac7678_${id}_5
+    cold_white_color_temperature: ${light4_warm_ct}
+    warm_white_color_temperature: ${light4_cool_ct}
+    gamma_correct: 1

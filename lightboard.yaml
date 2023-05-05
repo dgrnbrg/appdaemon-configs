@@ -1,0 +1,156 @@
+substitutions:
+  device_name: lightyio
+
+esphome:
+  name: lightyio
+  friendly_name: lightyio
+
+esp32:
+  board: wesp32
+# framework:
+#   type: esp-idf
+#   version: recommended
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+packages:
+  #irk_locator: !include irk_locator.yaml
+  dac1: !include {file: dac_light.yaml, vars: { address: 0x4C, id: U11,
+                  light1: "Light 1", light1_warm_ct: "5000 K", light1_cool_ct: "3000 K",
+                  light2: "Light 2", light2_warm_ct: "5000 K", light2_cool_ct: "3000 K",
+                  light3: "Light 3", light3_warm_ct: "5000 K", light3_cool_ct: "3000 K",
+                  light4: "Light 4", light4_warm_ct: "5000 K", light4_cool_ct: "3000 K",
+                 }}
+  dac2: !include {file: dac_light.yaml, vars: { address: 0x48, id: U9,
+                  light1: "Light 5", light1_warm_ct: "5000 K", light1_cool_ct: "3000 K",
+                  light2: "Light 6", light2_warm_ct: "5000 K", light2_cool_ct: "3000 K",
+                  light3: "Light 7", light3_warm_ct: "5000 K", light3_cool_ct: "3000 K",
+                  light4: "Light 8", light4_warm_ct: "5000 K", light4_cool_ct: "3000 K",
+                 }}
+  dac3: !include {file: dac_light.yaml, vars: { address: 0x4A, id: U7,
+                  light1: "Light 9", light1_warm_ct: "5000 K", light1_cool_ct: "3000 K",
+                  light2: "Light 10", light2_warm_ct: "5000 K", light2_cool_ct: "3000 K",
+                  light3: "Light 11", light3_warm_ct: "5000 K", light3_cool_ct: "3000 K",
+                  light4: "Light 12", light4_warm_ct: "5000 K", light4_cool_ct: "3000 K",
+                 }}
+
+# Enable Home Assistant API
+api:
+
+ota:
+  password: ""
+
+ethernet:
+  type: RTL8201
+  mdc_pin: GPIO16
+  mdio_pin: GPIO17
+  clk_mode: GPIO0_IN
+  phy_addr: 0
+
+i2c:
+  scl: GPIO4
+  sda: GPIO15
+  scan: true
+  id: i2c_bus
+
+binary_sensor:
+  - platform: status
+    name: ${device_name} status
+  - platform: gpio
+    pin:
+      number: GPIO23
+      mode:
+        input: true
+        pullup: true
+    name: Pushbutton
+    filters: # debounce
+      - delayed_on_off: 10ms
+#    on_press:
+#      then:
+#        - switch.turn_off: en_5v
+#        - delay: 500ms
+#        - button.press: restart_internal
+
+switch:
+#  - platform: gpio
+#    id: en_5v
+#    pin: GPIO12
+#    name: Enable 5V
+  - platform: gpio
+    pin: GPIO32
+    id: ntc_vcc
+    internal: true
+    name: NTC VCC switch
+
+
+output:
+  - platform: gpio
+    id: ldac
+    pin: GPIO2
+
+button:
+  - platform: restart
+    name: Restart ESP32
+    id: restart_internal
+    entity_category: config 
+  - platform: output
+    name: LDAC
+    output: ldac
+    duration: 1ms
+
+sensor:
+  - platform: internal_temperature
+    name: "Internal Temperature"
+    entity_category: diagnostic
+  - platform: ntc
+    name: "Isolated Section Left"
+    sensor: left_resistance
+    entity_category: diagnostic
+    calibration:
+      b_constant: 3435
+      reference_temperature: 25C
+      reference_resistance: 10kOhm
+  - platform: resistance
+    id: left_resistance
+    sensor: left_source
+    configuration: UPSTREAM
+    resistor: 10kOhm
+  - platform: adc
+    pin: GPIO34
+    id: left_source
+    update_interval: never
+    attenuation: 11db
+    internal: true
+    name: Left NTC ADC
+  - platform: ntc
+    name: "Isolated Section Right"
+    sensor: right_resistance
+    entity_category: diagnostic
+    calibration:
+      b_constant: 3435
+      reference_temperature: 25C
+      reference_resistance: 10kOhm
+  - platform: resistance
+    id: right_resistance
+    sensor: right_source
+    configuration: UPSTREAM
+    resistor: 10kOhm
+  - platform: adc
+    pin: GPIO39
+    id: right_source
+    update_interval: never
+    attenuation: 11db
+    name: Right NTC ADC
+    internal: true
+
+interval:
+  - interval: 60s
+    then:
+      - switch.turn_on: ntc_vcc
+      - component.update: left_source
+      - component.update: right_source
+      - switch.turn_off: ntc_vcc
