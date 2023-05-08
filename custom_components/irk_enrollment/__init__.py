@@ -46,5 +46,6 @@ async def to_code(config):
     ble_master = await cg.get_variable(config[esp32_ble.CONF_BLE_ID])
     cg.add(ble_master.register_gatts_event_handler(var))
 
-    latest_irk = await text_sensor.new_text_sensor(config[CONF_LATEST_IRK])
-    cg.add(var.set_latest_irk(latest_irk))
+    if CONF_LATEST_IRK in config:
+        latest_irk = await text_sensor.new_text_sensor(config[CONF_LATEST_IRK])
+        cg.add(var.set_latest_irk(latest_irk))
