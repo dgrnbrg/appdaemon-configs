@@ -65,12 +65,15 @@ class RoomAugmenter(hass.Hass):
         self.entity_states[entity] = new
         if self.current_state == 'interior':
             return # higher priority, so disregard
-        if new == 'on':
+        if self.any_borders_on():
             self.update_state('border on')
-        elif new == 'off' and self.opening_is_open():
+        elif self.opening_is_open():
             self.update_state('border off')
+        else:
+            # this means there's a wasp in the box
+            pass
         if self.debug_mode:
-            self.log(f'border {entity}={new} {self.current_state}')
+            self.log(f'border {entity}={new} any-borders={self.any_borders_on()} {self.current_state}')
 
     def any_borders_on(self):
         for b in self.border_ents:
@@ -80,12 +83,12 @@ class RoomAugmenter(hass.Hass):
 
     def interior_detected_state(self, entity, attr, old, new, kwargs):
         self.entity_states[entity] = new
-        if new == 'on':
+        if self.any_interior_on():
             self.update_state('interior on')
-        elif new == 'off':
+        else:
             self.update_state('interior off')
         if self.debug_mode:
-            self.log(f'interior {entity}={new} {self.current_state}')
+            self.log(f'interior {entity}={new} any-interior={self.any_interior_on()} {self.current_state}')
 
     def opening_is_open(self):
         if not self.opening_ents:
@@ -107,6 +110,7 @@ class RoomAugmenter(hass.Hass):
         if new not in self.room_names:
             if entity in self.retaining_irks:
                 self.retaining_irks.remove(entity)
+                self.current_state = f'retained by {self.retaining_irks}'
             if not self.retaining_irks:
                 self.update_state('no retaining irks')
         if self.debug_mode:
@@ -131,8 +135,11 @@ class RoomAugmenter(hass.Hass):
                 self.current_state = 'border on'
             elif not self.any_interior_on() and old_state != 'unknown':
                 self.current_state = 'interior off'
-            # we only copy the existing state here, b/c it should already be on (or off at initialization)
-            publish_state = self.get_state(self.sensor_id)
+            # [test: when should we actually publish?] we only copy the existing state here, b/c it should already be on (or off at initialization)
+            if old_state == 'unknown':
+                publish_state = self.get_state(self.sensor_id)
+            else:
+                publish_state = 'on'
         elif new_state == 'border on':
             # If we're not in an interior state, we'll move to the border state
             if not self.current_state.startswith('interior '):
@@ -160,7 +167,10 @@ class RoomAugmenter(hass.Hass):
             self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
         if publish_state is not None:
             ent = self.get_entity(self.sensor_id)
-            ent.set_state(state = publish_state, attributes={'current_state': self.current_state})
+            attrs = {'current_state': self.current_state}
+            for k,v in self.entity_states.items():
+                attrs[k] = v
+            ent.set_state(state = publish_state, attributes=attrs)
 
 
 class BedStateManager(hass.Hass):
