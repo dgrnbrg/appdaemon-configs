@@ -33,7 +33,7 @@ esp32_ble_tracker:
                   addr[1] = (addr64 >> 8) & 0xff;
                   addr[0] = (addr64) & 0xff;
                   if (ble_ll_resolv_rpa((const uint8_t *)addr, irk)) {
-                    ESP_LOGD("local_irk", "Resolved idx %d", i);
+                    ESP_LOGD("local_irk", "Resolved idx %d from ${irk_source}", i);
                     return true;
                   }
                 }
