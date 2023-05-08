@@ -192,7 +192,7 @@ class IrkTracker(hass.Hass):
     @ad.app_lock
     def away_tracker_cb(self, entity, attr, old, new, kwargs):
         person = kwargs['person']
-        self.log(f"running away tracker cb for person = {person} state = {new} entity = {entity}")
+        #self.log(f"running away tracker cb for person = {person} state = {new} entity = {entity}")
         if new != 'home':
             if person in self.away_tracker_pending_arrivals:
                 # cancel a pending arrival if we got a new not here event
@@ -341,6 +341,7 @@ class IrkTracker(hass.Hass):
                 weighted_votes.append((numerator / denominator, count, orig_source))
             weighted_votes.sort(key=lambda x: x[0], reverse=False)
             in_room = self.resolve_room2(weighted_votes, device)
+        self.log(f"total_votes={total_votes} in_room={in_room}")
         device_person = self.identities[device]['person']
         # they're always here if they don't have a fused tracker, or they're in a "home" state
         person_is_home = device_person not in self.fused_trackers or self.get_state(self.fused_trackers[device_person]) in ['home', 'just_arrived']
