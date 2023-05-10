@@ -62,6 +62,8 @@ class RoomAugmenter(hass.Hass):
             self.log('finish init')
 
     def border_crossed_state(self, entity, attr, old, new, kwargs):
+        if new == 'unavailable':
+            return
         self.entity_states[entity] = new
         if self.current_state == 'interior':
             return # higher priority, so disregard
@@ -82,6 +84,8 @@ class RoomAugmenter(hass.Hass):
         return False
 
     def interior_detected_state(self, entity, attr, old, new, kwargs):
+        if new == 'unavailable':
+            return
         self.entity_states[entity] = new
         if self.any_interior_on():
             self.update_state('interior on')
@@ -99,6 +103,8 @@ class RoomAugmenter(hass.Hass):
         return False
 
     def opening_state(self, entity, attr, old, new, kwargs):
+        if new == 'unavailable':
+            return
         self.entity_states[entity] = new
         if new == 'on':
             self.update_state('just opened')
