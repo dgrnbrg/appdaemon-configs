@@ -335,7 +335,23 @@ class BasicThermostatController(hass.Hass):
             self.today_conf['target_temp'] = sleep_temp
             if 'saved_temperature' in self.today_conf:
                 del self.today_conf['saved_temperature']
-            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = sleep_temp)
+            # When we're in heating mode, if it's not cool enough outside to passively cool, we will switch to AC temporarily
+            extra_args = {}
+            if self.today_conf_based_on_state == 'heat':
+                current_outside_temp = self.get_state(self.weather_ent, attribute="temperature")
+                if current_outside_temp + 15 > sleep_temp:
+                    self.log(f"Since outside temp = {current_outside_temp} and sleep temp is {sleep_temp}, cooling us for a bit")
+                    extra_args = {'hvac_mode': 'cool'}
+                    self.sleep_rapid_cool_cancel_watch_handle = self.listen_state(self.cancel_sleep_rapid_cool_callback, self.thermostat, attribute='temperature', sleep_temp=sleep_temp)
+            self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = sleep_temp, **extra_args)
+
+    @ad.app_lock
+    def cancel_sleep_rapid_cool_callback(self, entity, attr, old, new, kwargs):
+        if new <= kwargs['sleep_temp']:
+            self.log(f"Achieved the target sleep temp {new}, resuming heating")
+            self.cancel_listen_state(self.sleep_rapid_cool_cancel_watch_handle)
+            del self.sleep_rapid_cool_cancel_watch_handle
+            self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'heat')
 
     @ad.app_lock
     def morning_alarm_event(self, event_name, data, kwargs):
