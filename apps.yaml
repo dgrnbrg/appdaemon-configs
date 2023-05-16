@@ -457,6 +457,7 @@ bedroom_presence:
     - device_tracker.aysylu_irk
   border: binary_sensor.bedroom_occupancy
   openings: binary_sensor.bedroom_door
+  closing_grace_period_seconds: 45
   room: downstairs
   debug: true
 

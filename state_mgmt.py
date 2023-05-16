@@ -24,6 +24,7 @@ class RoomAugmenter(hass.Hass):
         return x
 
     def initialize(self):
+        self.grace_token = None
         self.debug_mode = self.args.get('debug', False)
         self.current_state = 'unknown'
         self.retaining_irks = []
@@ -65,15 +66,12 @@ class RoomAugmenter(hass.Hass):
         if new == 'unavailable':
             return
         self.entity_states[entity] = new
-        if self.current_state == 'interior':
+        if self.current_state.startswith('interior'):
             return # higher priority, so disregard
         if self.any_borders_on():
             self.update_state('border on')
-        elif self.opening_is_open():
-            self.update_state('border off')
         else:
-            # this means there's a wasp in the box
-            pass
+            self.update_state('border off')
         if self.debug_mode:
             self.log(f'border {entity}={new} any-borders={self.any_borders_on()} {self.current_state}')
 
@@ -128,6 +126,10 @@ class RoomAugmenter(hass.Hass):
                 return True
         return False
 
+    def close_grace_expired(self, kwargs):
+        self.grace_token = None # otherwise, we'll try to cancel ourself later, but we can't because we already fired
+        self.update_state('close grace expired')
+
     def update_state(self, new_state):
         old_state = self.current_state
         publish_state = None
@@ -173,12 +175,20 @@ class RoomAugmenter(hass.Hass):
             self.current_state = 'border on'
             publish_state = 'on'
         elif new_state == 'just closed':
-            if self.any_borders_on() or self.any_interior_on():
-                self.current_state = 'trapped'
-                publish_state = 'on'
+            self.grace_token = self.run_in(self.close_grace_expired, delay=self.args.get('closing_grace_period_seconds', 5))
+        elif new_state == 'close grace expired':
+            self.current_state = 'off'
+            publish_state = 'off'
+        # Cancel a delayed off if there is one
+        if self.grace_token is not None and new_state != 'just closed':
+            if self.current_state == 'trapped':
+                if self.debug_mode:
+                    self.log(f"we can't be trapped when on grace period, reverting")
+                self.current_state = old_state
+                publish_state = None
             else:
-                self.current_state = 'off'
-                publish_state = 'off'
+                self.cancel_timer(self.grace_token)
+                self.grace_token = None
         if self.debug_mode:
             self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
         if publish_state is not None:
