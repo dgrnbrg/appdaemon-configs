@@ -277,6 +277,7 @@ kitchen_lights:
       state: turned_off
     - presence:
       - binary_sensor.main_floor_presence_augmented
+      - input_boolean.watching_tv
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -331,7 +332,7 @@ bedroom_near_light:
       - binary_sensor.someone_in_bed
       max_brightness: 30%
     - presence:
-      - binary_sensor.bedroom_occupancy
+      - binary_sensor.bedroom_presence_augmented
       delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_near
@@ -349,7 +350,7 @@ bedroom_far_light:
       - input_boolean.aysylu_in_bed
       max_brightness: 1%
     - presence:
-      - binary_sensor.bedroom_occupancy
+      - binary_sensor.bedroom_presence_augmented
       delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.bedroom_far
@@ -392,12 +393,18 @@ basic_thermostat:
     - device_tracker.david_fused in [home, just_arrived]
     - device_tracker.aysylu_fused in [home, just_arrived]
       #- input_boolean.test_helper
+  outside_openings:
+    - binary_sensor.patio_door
+  debug: true
 
 in_bed_tracker:
   class: BedStateManager
   module: state_mgmt
   wake_event: wake_up
   away_distance: 60
+    #TODO this calc distance can be very wrong
+    #it is 0 when it's wrong?
+    #device_tracker.aysylu_iphone_app has latitude, longitude, and gps accuracy
   iphones:
     david:
       ssid: sensor.davids_iphone_ssid
@@ -441,6 +448,18 @@ parking_booker:
   plates:
     - KTT9990
 
+bedroom_presence:
+  class: RoomAugmenter
+  module: state_mgmt
+  sensor_id: binary_sensor.bedroom_presence_augmented
+  irk_trackers:
+    - device_tracker.david_irk
+    - device_tracker.aysylu_irk
+  border: binary_sensor.bedroom_occupancy
+  openings: binary_sensor.bedroom_door
+  room: downstairs
+  debug: true
+
 basement_presence:
   class: RoomAugmenter
   module: state_mgmt
@@ -451,6 +470,7 @@ basement_presence:
   interior: binary_sensor.computer_area_occupancy_detected
   border: binary_sensor.garage_entrance_occupancy_detected
   room: downstairs
+    #debug: true
 
 main_floor_presence:
   class: RoomAugmenter
@@ -459,6 +479,9 @@ main_floor_presence:
   irk_trackers:
     - device_tracker.david_irk
     - device_tracker.aysylu_irk
-  interior: binary_sensor.main_floor_occupancy
-  border: binary_sensor.kitchen_occupancy
+  border: binary_sensor.main_floor_occupancy
+  interior: 
+    - binary_sensor.kitchen_occupancy
+    - binary_sensor.dining_table_occupancy_detected
   room: main-floor
+    #debug: true

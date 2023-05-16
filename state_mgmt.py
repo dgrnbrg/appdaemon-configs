@@ -169,6 +169,16 @@ class RoomAugmenter(hass.Hass):
         elif new_state == 'no retaining irks' and self.current_state.startswith('retained by '):
             self.current_state = 'off'
             publish_state = 'off'
+        elif new_state == 'just opened':
+            self.current_state = 'border on'
+            publish_state = 'on'
+        elif new_state == 'just closed':
+            if self.any_borders_on() or self.any_interior_on():
+                self.current_state = 'trapped'
+                publish_state = 'on'
+            else:
+                self.current_state = 'off'
+                publish_state = 'off'
         if self.debug_mode:
             self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
         if publish_state is not None:

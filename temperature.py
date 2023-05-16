@@ -56,12 +56,54 @@ def get_sensor_data(entity_id, column, start='-7d'):
 
 # TODO maybe this should be a linear model instead. Weather, outdoor temp, indoor temp, heating/cool mode. maybe cloudiness, indoor humidity?
 class OffsetCalibration(hass.Hass):
+    def setup_listen_state(self, cb, present_state, absent_state, entity, **kwargs):
+        cur_state = self.get_state(entity)
+        def delegate(_):
+            cb(entity, 'state', None, cur_state, kwargs)
+        if present_state:
+            if isinstance(present_state, list):
+                if self.debug_enabled:
+                    self.log(f"present {entity} in {present_state} for {cb}")
+                def present_check(n):
+                    if self.debug_enabled:
+                        self.log(f"present {entity} in {present_state} for {cb} checking = {n in present_state}")
+                    return n in present_state
+                self.listen_state(cb, entity, new=present_check, **kwargs)
+                if kwargs.get('immediate') and present_check(cur_state):
+                    self.run_in(delegate, 0)
+            else:
+                if self.debug_enabled:
+                    self.log(f"present {entity} = {present_state} for {cb}")
+                self.listen_state(cb, entity, new=present_state, **kwargs)
+        else:
+            if isinstance(absent_state, list):
+                if self.debug_enabled:
+                    self.log(f"absent {entity} not in {absent_state} for {cb}")
+                def absent_check(n):
+                    return n not in absent_state
+                self.listen_state(cb, entity, new=absent_check, **kwargs)
+                if kwargs.get('immediate') and absent_check(cur_state):
+                    def delegate(_):
+                        cb(entity, 'state', None, cur_state, kwargs)
+                    self.run_in(delegate, 0)
+            else:
+                if self.debug_enabled:
+                    self.log(f"absent {entity} != {absent_state} for {cb}")
+                def absent_check(n):
+                    return n != absent_state
+                self.listen_state(cb, entity, new=absent_check, **kwargs)
+                if kwargs.get('immediate') and absent_check(cur_state):
+                    def delegate(_):
+                        cb(entity, 'state', None, cur_state, kwargs)
+                    self.run_in(delegate, 0)
+
     def initialize(self):
         self.thermostat_ent = self.args["climate_entity"]
         self.remote_temp_ent = self.args["temperature_entity"]
         runtime = datetime.time(0, 0, 0)
         self.run_in(self.compute_offsets, 0)
         self.run_hourly(self.compute_offsets, runtime)
+
 
     def compute_offsets(self, kwargs):
         for remote_temp_ent in self.remote_temp_ent:
@@ -142,7 +184,7 @@ class ConvergenceSpeedCalibration(hass.Hass):
 class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def initialize(self):
-        self.debug_enabled = self.args.get('debug_enabled', False)
+        self.debug_enabled = self.args.get('debug', False)
         self.thermostat = self.args["climate_entity"]
         self.max_diff_for_heat_pump = self.args["max_diff_for_heat_pump"]
         self.report_ent_name = self.args['report_entity']
@@ -159,6 +201,13 @@ class BasicThermostatController(hass.Hass):
         for present_state, absent_state, entity in self.presence:
             self.setup_listen_state(cb=self.did_arrive, entity=entity, present_state=present_state, absent_state=absent_state, immediate=True)
             self.setup_listen_state(cb=self.did_leave, entity=entity, present_state=absent_state, absent_state=present_state, immediate=True)
+        self.hvac_state_before_opening = None
+        self.force_off_states = {}
+        for o in self.args["outside_openings"]:
+            present, absent, entity = parse_conditional_expr(o)
+            self.log(f"Set up outside opening {o}")
+            self.setup_listen_state(cb=self.outside_opened_cb, entity=entity, present_state=present, absent_state=absent, immediate=True)
+            self.setup_listen_state(cb=self.outside_closed_cb, entity=entity, present_state=absent, absent_state=present, immediate=True)
         self.determine_if_warm_or_cool_day({})
         self.next_target = 0 # used for climb heat mode
         if 'sleep_fallback_time' in self.args:
@@ -207,6 +256,37 @@ class BasicThermostatController(hass.Hass):
                     def delegate(_):
                         cb(entity, 'state', None, cur_state, kwargs)
                     self.run_in(delegate, 0)
+
+    def outside_opened_cb(self, entity, attr, old, new, kwargs):
+        if new == 'unknown' or new == 'unavailable':
+            # ignore these states
+            return
+        all_closed = True
+        for k,v in self.force_off_states.items():
+            if v == 'open':
+                all_closed = False
+        if all_closed:
+            self.hvac_state_before_opening = self.get_state(self.thermostat)
+            self.log(f"recording prior hvac state as {self.hvac_state_before_opening}")
+        self.force_off_states[entity] = 'open'
+        self.log(f"{entity} was opened (state is now {new})")
+        if self.get_state(self.thermostat) != 'off':
+            self.log(f"so turning off HVAC")
+            self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'off')
+
+    def outside_closed_cb(self, entity, attr, old, new, kwargs):
+        if new == 'unknown' or new == 'unavailable':
+            # ignore these states
+            return
+        self.log(f"{entity} was closed (state is now {new})")
+        self.force_off_states[entity] = 'closed'
+        all_closed = True
+        for k,v in self.force_off_states.items():
+            if v == 'open':
+                all_closed = False
+        if all_closed and self.hvac_state_before_opening is not None and self.hvac_state_before_opening != 'off':
+            self.log(f"since nothing is open now, setting HVAC back to {self.hvac_state_before_opening}")
+            self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = self.hvac_state_before_opening)
 
     @ad.app_lock
     def did_arrive(self, entity, attr, old, new, kwargs):
@@ -308,6 +388,9 @@ class BasicThermostatController(hass.Hass):
         if self.get_state(self.thermostat) == 'unavailable':
             self.log(f"Thermostat was unavailable, retrying in 5 minutes...")
             self.run_in(self.determine_if_warm_or_cool_day, 300)
+            return
+        if self.get_state(self.thermostat) == 'off':
+            self.log(f"Thermostat is off, doesn't matter if day is warm or cool")
             return
         self.today_conf_based_on_state = self.get_state(self.thermostat)
         self.today_conf = self.args[self.today_conf_based_on_state].copy()
