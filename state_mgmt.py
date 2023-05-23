@@ -25,6 +25,7 @@ class RoomAugmenter(hass.Hass):
 
     def initialize(self):
         self.grace_token = None
+        self.trapped_token = None
         self.debug_mode = self.args.get('debug', False)
         self.current_state = 'unknown'
         self.retaining_irks = []
@@ -65,15 +66,19 @@ class RoomAugmenter(hass.Hass):
     def border_crossed_state(self, entity, attr, old, new, kwargs):
         if new == 'unavailable':
             return
+        old_agg_state = self.any_borders_on()
         self.entity_states[entity] = new
         if self.current_state.startswith('interior'):
             return # higher priority, so disregard
-        if self.any_borders_on():
-            self.update_state('border on')
-        else:
-            self.update_state('border off')
+        did_update = False
+        if old_agg_state != self.any_borders_on():
+            did_update = True
+            if self.any_borders_on():
+                self.update_state('border on')
+            else:
+                self.update_state('border off')
         if self.debug_mode:
-            self.log(f'border {entity}={new} any-borders={self.any_borders_on()} {self.current_state}')
+            self.log(f'border {entity}={new} any-borders={self.any_borders_on()} {self.current_state} (did_update={did_update})')
 
     def any_borders_on(self):
         for b in self.border_ents:
@@ -84,13 +89,17 @@ class RoomAugmenter(hass.Hass):
     def interior_detected_state(self, entity, attr, old, new, kwargs):
         if new == 'unavailable':
             return
+        self.old_agg_state = self.any_interior_on()
         self.entity_states[entity] = new
-        if self.any_interior_on():
-            self.update_state('interior on')
-        else:
-            self.update_state('interior off')
+        did_update = False
+        if old_agg_state != self.any_interior_on():
+            did_update = True
+            if self.any_interior_on():
+                self.update_state('interior on')
+            else:
+                self.update_state('interior off')
         if self.debug_mode:
-            self.log(f'interior {entity}={new} any-interior={self.any_interior_on()} {self.current_state}')
+            self.log(f'interior {entity}={new} any-interior={self.any_interior_on()} {self.current_state} (did_update={did_update})')
 
     def opening_is_open(self):
         if not self.opening_ents:
@@ -130,6 +139,10 @@ class RoomAugmenter(hass.Hass):
         self.grace_token = None # otherwise, we'll try to cancel ourself later, but we can't because we already fired
         self.update_state('close grace expired')
 
+    def trapped_wait_expired(self, kwargs):
+        self.trapped_token = None
+        self.update_state('trapped expired')
+
     def update_state(self, new_state):
         old_state = self.current_state
         publish_state = None
@@ -168,6 +181,7 @@ class RoomAugmenter(hass.Hass):
             else:
                 self.current_state = 'trapped'
                 publish_state = 'on'
+                self.trapped_token = self.run_in(self.trapped_wait_expired, delay=self.args.get('trapped_max_period_seconds', 60*30))
         elif new_state == 'no retaining irks' and self.current_state.startswith('retained by '):
             self.current_state = 'off'
             publish_state = 'off'
@@ -177,6 +191,9 @@ class RoomAugmenter(hass.Hass):
         elif new_state == 'just closed':
             self.grace_token = self.run_in(self.close_grace_expired, delay=self.args.get('closing_grace_period_seconds', 5))
         elif new_state == 'close grace expired':
+            self.current_state = 'off'
+            publish_state = 'off'
+        elif new_state == 'trapped expired':
             self.current_state = 'off'
             publish_state = 'off'
         # Cancel a delayed off if there is one
@@ -189,6 +206,9 @@ class RoomAugmenter(hass.Hass):
             else:
                 self.cancel_timer(self.grace_token)
                 self.grace_token = None
+        if self.trapped_token is not None and new_state != 'trapped':
+            self.cancel_timer(self.trapped_token)
+            self.trapped_token = None
         if self.debug_mode:
             self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
         if publish_state is not None:
