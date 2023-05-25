@@ -455,7 +455,11 @@ bedroom_presence:
   irk_trackers:
     - device_tracker.david_irk
     - device_tracker.aysylu_irk
-  border: binary_sensor.bedroom_occupancy
+  border:
+    - binary_sensor.bedroom_occupancy
+    - binary_sensor.pir_ep1_bedroom
+    - binary_sensor.david_pir_under_bed
+    - binary_sensor.aysylu_pir_under_bed
   openings: binary_sensor.bedroom_door
   closing_grace_period_seconds: 45
   room: downstairs
@@ -485,4 +489,71 @@ main_floor_presence:
     - binary_sensor.kitchen_occupancy
     - binary_sensor.dining_table_occupancy_detected
   room: main-floor
-    #debug: true
+  debug: true
+
+cleaner:
+  class: CleaningManager
+  module: cleaning_queue
+  debug: true
+  vacuum: vacuum.roborock_s7_maxv_2
+  vacuum_map: camera.roborock_s7_maxv_map
+  readiness_timeout_mins: 60
+  maintainence_states:
+    - 38 # refill clean water
+    - 27 # empty dirty
+    - 10 # stuck
+  pathways:
+    "living room":
+      # default to open connections
+      - dining room
+      - litter box
+    dining room:
+      - area: kitchen
+        opening: input_boolean.kitchen_false_door
+        before_coord: [ 25950, 20850 ]
+        after_coord: [ 26150, 20850 ]
+        #- foyer
+        #    foyer:
+        #      - opening: binary_sensor.bedroom_hall_door
+        #        area: bedroom hallway
+        #    bedroom hallway:
+        #      - opening: binary_sensor.bedroom_1_door
+        #        area: bedroom 1
+        #        before_coord: [ 22, 22 ]
+        #        after_coord: [ 22, 20 ]
+        #      - opening: binary_sensor.bedroom_2_door
+        #        area: bedroom 2
+        #        before_coord: [ 14, 22 ]
+        #        after_coord: [ 14, 20 ]
+        #      - opening: binary_sensor.bedroom_3_door
+        #        area: bedroom 3
+        #        before_coord: [ 10, 22 ]
+        #        after_coord: [ 10, 20 ]
+        #      - opening: binary_sensor.master_bedroom_door
+        #        area: master bedroom
+        #        before_coord: [ 22, 30 ]
+        #        after_coord: [ 22, 28 ]
+        #      gated:
+        #        opening:
+        #          - binary_sensor.bedroom_1_door
+  areas:
+    "living room":
+      id: 18
+      presence:
+        - binary_sensor.main_floor_presence_augmented
+        - binary_sensor.yet_to_tidy_living_room
+      home: true # makes this the area which contains the base
+    kitchen:
+      id: 16
+      presence: binary_sensor.main_floor_presence_augmented
+    "dining room":
+      id: 17
+      presence: binary_sensor.main_floor_presence_augmented
+    "litter box":
+      zone:
+        - 24964
+        - 25210
+        - 27594
+        - 28426
+      presence: binary_sensor.main_floor_presence_augmented
+
