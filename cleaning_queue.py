@@ -51,11 +51,14 @@ class CleaningManager(hass.Hass):
         self.pending_actions = [] # list of maps that describe pending cleaning actions
         self.areas = self.args['areas']
         self.home_area = None
+        presence_sensors = set()
         for area,cfg in self.areas.items():
             if cfg.get('home'):
                 if self.home_area is not None:
                     raise ValueError(f"Should only be one home area")
                 self.home_area = area
+            for s in cfg.get('presence', []):
+                presence_sensors.add(s)
         self.sensor_listen_tokens = []
         for src_area, cfgs in self.args['pathways'].items():
             if self.debug_enabled:
@@ -110,6 +113,9 @@ class CleaningManager(hass.Hass):
         # try to reschedule as soon as a door is opened for a bit
         for opening in openings:
             self.listen_state(self.schedule_on_state_change, opening, duration=15)
+        # try to reschedule as soon as presence signals change
+        for s in presence_sensors:
+            self.listen_state(self.schedule_on_state_change, s, duration=3)
         # validate we have full reachability for all areas
         areas_not_connected = []
         for area, cfg in self.areas.items():
@@ -132,8 +138,8 @@ class CleaningManager(hass.Hass):
 
     def clean_event_cb(self, event_name, data, kwargs):
         self.clean_area(data['area'], data.get('args', {}))
-        # Immediately try scheduling
-        self.next_job({})
+        # Immediately try scheduling (but give a short grace period so that we can batch up)
+        self.run_in(self.next_job, 5)
 
     def get_directly_connected_set(self, area, include_currently_open=False, min_openings_from_home=0):
         connected = set()
