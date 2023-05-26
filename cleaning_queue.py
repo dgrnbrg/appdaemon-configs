@@ -90,6 +90,7 @@ class CleaningManager(hass.Hass):
         self.areas[self.home_area]['openings_from_home'] = 0
         seen = set()
         worklist = [self.home_area]
+        openings = set()
         while worklist:
             cur = worklist.pop(0)
             seen.add(cur)
@@ -101,9 +102,14 @@ class CleaningManager(hass.Hass):
                         self.areas[dest]['openings_from_home'] = cur_cfg['openings_from_home']
                     else:
                         self.areas[dest]['openings_from_home'] = cur_cfg['openings_from_home'] + 1
+                    if 'opening' in conn:
+                        openings.add(conn['opening'])
                     worklist.append(dest)
         if self.debug_enabled:
             pprint(self.areas)
+        # try to reschedule as soon as a door is opened for a bit
+        for opening in openings:
+            self.listen_state(self.schedule_on_state_change, opening, duration=15)
         # validate we have full reachability for all areas
         areas_not_connected = []
         for area, cfg in self.areas.items():
@@ -126,6 +132,8 @@ class CleaningManager(hass.Hass):
 
     def clean_event_cb(self, event_name, data, kwargs):
         self.clean_area(data['area'], data.get('args', {}))
+        # Immediately try scheduling
+        self.next_job({})
 
     def get_directly_connected_set(self, area, include_currently_open=False, min_openings_from_home=0):
         connected = set()
@@ -149,11 +157,14 @@ class CleaningManager(hass.Hass):
     def is_zone(self, area):
         return 'zone' in self.areas[area]
 
-    def vacuum_close_to(self, coord, distance = 25):
+    def vacuum_close_to(self, coord, distance = 150):
         cur_pos = self.get_state(self.vacuum_map, attribute='vacuum_position')
         tx,ty = coord
         cx,cy = (cur_pos['x'], cur_pos['y'])
-        return math.sqrt((tx-cx)**2 + (ty-cy)**2) < distance
+        dist = math.sqrt((tx-cx)**2 + (ty-cy)**2)
+        if self.debug_enabled:
+            self.log(f"close to check: current={(cx,cy)} target={(tx,ty)} dist={dist}")
+        return dist < distance
 
     def find_path_between(self, start, end):
         predecessors = {}
@@ -176,6 +187,9 @@ class CleaningManager(hass.Hass):
             self.log(f"computed path from {start} to {end}: {path[::-1]}")
         return path[::-1]
 
+    def schedule_on_state_change(self, entity, attribute, old, new, kwargs):
+        self.next_job({})
+
     def next_job(self, kwargs):
         if self.ready_service_args:
             self.log(f"not trying to schedule because we've already got a job running")
@@ -193,7 +207,7 @@ class CleaningManager(hass.Hass):
             for dst_area,dst_cfg in cfg.get('connections',{}).items():
                 # If we are, we should try to clean rooms at least that many openings from home
                 if 'before_coord' in dst_cfg and self.vacuum_close_to(dst_cfg['before_coord']):
-                    min_openings_from_home = max(min_openings_from_home, self.areas[dst_area]['min_openings_from_home'])
+                    min_openings_from_home = max(min_openings_from_home, self.areas[dst_area]['openings_from_home'])
         # We'll prefer cleaning that won't require asking for help to open a door
         current_area_id = self.get_state(self.vacuum_map, attribute='vacuum_room')
         current_area = self.home_area # default to home area if we don't localize
@@ -223,9 +237,13 @@ class CleaningManager(hass.Hass):
             self.log(f"coords_and_votes = {coords_and_votes}; coords_to_transition = {coords_to_transition}")
             pprint(coords_and_votes)
             target_coords = max(coords_and_votes, key=lambda k: coords_and_votes[k])
-            self.log(f"self.call_service('roborock/vacuum_goto', x_coord={target_coords[0]}, y_coord={target_coords[1]})")
+            #self.log(f"self.call_service('roborock/vacuum_goto', x_coord={target_coords[0]}, y_coord={target_coords[1]})")
             area, next_area = coords_to_transition[target_coords]
-            self.log(f"sending vacuum to the opening between {area} and {next_area} to wait")
+            if self.vacuum_close_to(target_coords):
+                self.log(f"vacuum already close to {target_coords} (to go from {area} to {next_area}), so holding tight")
+            else:
+                self.call_service('roborock/vacuum_goto', x_coord=target_coords[0], y_coord=target_coords[1], entity_id= self.vacuum)
+                self.log(f"sending vacuum to the opening between {area} and {next_area} to wait")
             return
         init_action = preferred_pending_actions.pop(0)
         next_actions = [init_action]
@@ -241,9 +259,9 @@ class CleaningManager(hass.Hass):
         self.log(f"Next actions:")
         pprint(next_actions)
         if self.is_zone(init_action['area']):
-            self.do_zone_cleaning([a['area'] for a in next_actions], **init_action['args'])
+            self.do_room_cleaning([a['area'] for a in next_actions], target_key='zone', service='roborock/vacuum_clean_zone', service_arg='zone', **init_action['args'])
         else: # rooms
-            self.do_room_cleaning([a['area'] for a in next_actions], **init_action['args'])
+            self.do_room_cleaning([a['area'] for a in next_actions], target_key='id', service='roborock/vacuum_clean_segment', service_arg='segments', **init_action['args'])
 
     def stop_sensor_listening(self):
         for token in self.sensor_listen_tokens:
@@ -255,6 +273,9 @@ class CleaningManager(hass.Hass):
         if new in ['unknown', 'unavailable']:
             new = 'off'
         self.sensor_states[entity] = new
+        self.clean_if_ready()
+
+    def clean_if_ready(self):
         waiting_for_sensors = []
         all_off = True
         for k,v in self.sensor_states.items():
@@ -263,37 +284,41 @@ class CleaningManager(hass.Hass):
                 waiting_for_sensors.append(k)
         if all_off:
             # everything is unoccupied
-            #self.call_service(**self.ready_service_args)
             self.log(f"starting clean: {self.ready_service_args}")
+            self.call_service(**self.ready_service_args)
             self.stop_sensor_listening()
             # now that the cleaning started, we need to wait until it's done, then clear the ready_service_args
-            self.vacuum_listen_token = self.listen_state(self.vacuum_state_changed, self.vacuum)
+            self.vacuum_listen_token = self.listen_state(self.vacuum_state_changed, self.vacuum, attribute='status')
         else:
             self.log(f"Waiting for sensors: {waiting_for_sensors}")
 
     def vacuum_state_changed(self, entity, attribute, old, new, kwargs):
+        # statuses seen: 'washing_the_map', 'idle', 'segment_cleaning', 'going_to_wash_the_mop', 'washing_the_mop', 'zoned_cleaning'
         if self.debug_enabled:
             self.log(f"observed state change for {entity} from {old} to {new}")
-        if old == 'cleaning' and new == 'returning_to_dock':
+        # TODO looks like we want a 3 state track of 'returning_home' -> 'emptying_the_bin' -> 'charging'
+        if old == 'emptying_the_bin' and new == 'charging':
             if self.debug_enabled:
                 self.log(f"Finished cleaning and returning to dock, job is done")
             self.ready_service_args = None
+            self.cancel_listen_state(self.vacuum_listen_token)
 
-    def do_room_cleaning(self, rooms, repeats=None):
+    def do_room_cleaning(self, rooms, repeats=None, target_key='id', service='roborock/vacuum_clean_segment', service_arg='segments'):
         presence_sensors = [] # wait for rooms to seem empty
-        ids = [] # ids to clean
+        ids = [] # things to clean
         for room in rooms:
             cfg = self.areas[room]
             presence = cfg.get('presence', [])
             if not isinstance(presence, list):
                 presence = [presence]
             presence_sensors.extend(presence)
-            ids.append(cfg['id'])
+            ids.append(cfg[target_key])
         self.stop_sensor_listening()
         # build the service call to do the work
         self.ready_service_args = {
-            'service': 'roborock/vacuum_clean_segment',
-            'segments': ids,
+            'service': service,
+            service_arg: ids,
+            'entity_id': self.vacuum,
         }
         if repeats is not None:
             self.ready_service_args['repeats'] = repeats
@@ -303,3 +328,4 @@ class CleaningManager(hass.Hass):
             self.sensor_states[sensor] = self.get_state(sensor)
             token = self.listen_state(self.sensor_state_changed, sensor)
             self.sensor_listen_tokens.append(token)
+        self.clean_if_ready()

@@ -456,7 +456,7 @@ bedroom_presence:
     - device_tracker.david_irk
     - device_tracker.aysylu_irk
   border:
-    - binary_sensor.bedroom_occupancy
+    #- binary_sensor.bedroom_occupancy
     - binary_sensor.pir_ep1_bedroom
     - binary_sensor.david_pir_under_bed
     - binary_sensor.aysylu_pir_under_bed
@@ -510,8 +510,8 @@ cleaner:
     dining room:
       - area: kitchen
         opening: input_boolean.kitchen_false_door
-        before_coord: [ 25950, 20850 ]
-        after_coord: [ 26150, 20850 ]
+        before_coord: [ 25477, 30469 ]
+        after_coord: [ 26003, 30648 ]
         #- foyer
         #    foyer:
         #      - opening: binary_sensor.bedroom_hall_door
