@@ -68,6 +68,8 @@ class RoomAugmenter(hass.Hass):
             return
         old_agg_state = self.any_borders_on()
         self.entity_states[entity] = new
+        if new == 'on': # we must cancel close grace even if we're not firing the state machine
+            self.cancel_close_grace()
         if self.current_state.startswith('interior'):
             return # higher priority, so disregard
         did_update = False
@@ -89,8 +91,10 @@ class RoomAugmenter(hass.Hass):
     def interior_detected_state(self, entity, attr, old, new, kwargs):
         if new == 'unavailable':
             return
-        self.old_agg_state = self.any_interior_on()
+        old_agg_state = self.any_interior_on()
         self.entity_states[entity] = new
+        if new == 'on': # we must cancel close grace even if we're not firing the state machine
+            self.cancel_close_grace()
         did_update = False
         if old_agg_state != self.any_interior_on():
             did_update = True
@@ -204,8 +208,7 @@ class RoomAugmenter(hass.Hass):
                 self.current_state = old_state
                 publish_state = None
             else:
-                self.cancel_timer(self.grace_token)
-                self.grace_token = None
+                self.cancel_close_grace()
         if self.trapped_token is not None and new_state != 'trapped':
             self.cancel_timer(self.trapped_token)
             self.trapped_token = None
@@ -217,6 +220,11 @@ class RoomAugmenter(hass.Hass):
             for k,v in self.entity_states.items():
                 attrs[k] = v
             ent.set_state(state = publish_state, attributes=attrs)
+
+    def cancel_close_grace(self):
+        if self.grace_token is not None:
+            self.cancel_timer(self.grace_token)
+        self.grace_token = None
 
 
 class BedStateManager(hass.Hass):
