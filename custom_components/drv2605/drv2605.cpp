@@ -7,21 +7,22 @@ namespace drv2605 {
 static const char *TAG = "drv2605.component";
 
 void DRV2605Component::setup() {
-    uint8_t status;
+    this->pref_ = global_preferences->make_preference<DRV2605CalibrationData>(this->name_hash_);
+    if (!this->pref_.load(&this->calibration_data_)) {
+        ESP_LOGW(TAG, "Calibration data not found. Please run calibration before proceeding");
+        this->has_calibration = false;
+    } else {
+        this->has_calibration = true;
+        ESP_LOGW(TAG, "Calibration data found.");
+    }
+
     this->en_pin_->setup();
     this->en_pin_->digital_write(0);
     delay(25);
-    // Pull EN pin high
-    this->en_pin_->digital_write(1);
-    delay(25);
-
-    this->write_byte(MODE_REG, 0x80); // Perform a reset
-
-    delay(25);
-
     this->pending_reset_ = false;
     this->en_pending_deassert_ = false;
     this->pending_calibrate_ = false;
+    this->reset();
 }
 
 void DRV2605Component::reset() {
@@ -32,12 +33,7 @@ void DRV2605Component::reset() {
     ESP_LOGD(TAG, "Initiated reset");
 }
 
-void DRV2605Component::calibrate() {
-    this->en_pin_->digital_write(1);
-    this->write_byte(MODE_REG, 0x0); // Move to out of standby
-    delay(25);
-    this->write_byte(MODE_REG, 0x7); // Move from standby to autocalibration
-
+void DRV2605Component::populate_config_regs() {
     uint8_t feedback_reg;
     this->read_byte(FEEDBACK_REG, &feedback_reg);
     // populate ERM_LRA
@@ -48,6 +44,11 @@ void DRV2605Component::calibrate() {
     // populate LOOP_GAIN - "2 for most actuators"
     feedback_reg &= ~0x0C;
     feedback_reg |= 0x1 << 2; // deviate to 1
+    if (this->has_calibration) {
+        // include bemf_gain
+        feedback_reg &= ~0x3;
+        feedback_reg |= this->calibration_data_.bemf_gain & 0x3;
+    }
     ESP_LOGD(TAG, "Feedback reg (0x%x) = 0x%x", FEEDBACK_REG, feedback_reg);
     this->write_byte(FEEDBACK_REG, feedback_reg);
 
@@ -98,6 +99,23 @@ void DRV2605Component::calibrate() {
     ESP_LOGD(TAG, "Control4 reg (0x%x) = 0x%x", CONTROL4_REG, control4_reg);
     this->write_byte(CONTROL4_REG, control4_reg);
 
+    if (this->has_calibration) {
+        ESP_LOGD(TAG, "Including calibration regs");
+        // include other calibration regs
+        this->write_byte(COMPRESULT_REG, this->calibration_data_.compensation);
+        this->write_byte(BACKEMF_REG, this->calibration_data_.backemf);
+    }
+}
+
+void DRV2605Component::calibrate() {
+    this->en_pin_->digital_write(1);
+    this->write_byte(MODE_REG, 0x0); // Move to out of standby
+    delay(25);
+    this->write_byte(MODE_REG, 0x7); // Move from standby to autocalibration
+
+    this->has_calibration = false; // ensure we recalibrate
+    this->populate_config_regs();
+
     // Start autocalibration
     this->write_byte(GO_REG, 0x01);
     this->pending_calibrate_ = true;
@@ -130,11 +148,18 @@ void DRV2605Component::loop() {
             this->read_byte(STATUS_REG, &status);
             if (status != 0xE0) {
                 ESP_LOGW(TAG, "status register %X in error", status);
-                //this->mark_failed();
-                //return;
+                this->mark_failed();
+                return;
             }
             ESP_LOGI(TAG, "drv2605 reset completed");
             this->write_byte(MODE_REG, 0x0); // Wake up from standby
+
+            if (this->has_calibration) {
+                ESP_LOGD(TAG, "populating config after reset");
+                this->populate_config_regs();
+            } else {
+                ESP_LOGD(TAG, "don't forget to run autocalibration");
+            }
             // pull EN pin low
             this->en_pin_->digital_write(0);
             this->pending_reset_ = false;
@@ -164,13 +189,15 @@ void DRV2605Component::loop() {
                 return;
             }
 
-            uint8_t tmp;
-            this->read_byte(FEEDBACK_REG, &tmp);
-            ESP_LOGI(TAG, "BEMF gain = %d", tmp & 0x3);
-            this->read_byte(COMPRESULT_REG, &tmp);
-            ESP_LOGI(TAG, "Autocalibration compensation = %d", tmp);
-            this->read_byte(BACKEMF_REG, &tmp);
-            ESP_LOGI(TAG, "Autocalibration back emf = %d", tmp);
+            this->read_byte(FEEDBACK_REG, &this->calibration_data_.bemf_gain);
+            this->calibration_data_.bemf_gain &= 0x3;
+            ESP_LOGI(TAG, "BEMF gain = %d", this->calibration_data_.bemf_gain);
+            this->read_byte(COMPRESULT_REG, &this->calibration_data_.compensation);
+            ESP_LOGI(TAG, "Autocalibration compensation = %d", this->calibration_data_.compensation);
+            this->read_byte(BACKEMF_REG, &this->calibration_data_.backemf);
+            ESP_LOGI(TAG, "Autocalibration back emf = %d", this->calibration_data_.backemf);
+            this->pref_.save(&this->calibration_data_);
+            ESP_LOGI(TAG, "Saved autocalibration data");
 
             this->write_byte(MODE_REG, 0x0); // Move from autocalibration to internal trigger
 
@@ -193,6 +220,14 @@ void DRV2605Component::dump_config(){
     ESP_LOGCONFIG(TAG, "  Overdrive reg = %d", this->overdrive_reg_value);
     ESP_LOGCONFIG(TAG, "  Rated voltage reg = %d", this->rated_voltage_reg_value);
     LOG_PIN("  EN pin:", this->en_pin_);
+    if (!this->has_calibration) {
+        ESP_LOGCONFIG(TAG, "  No calibration data found");
+    } else {
+        ESP_LOGCONFIG(TAG, "  Calibration data:");
+        ESP_LOGCONFIG(TAG, "    bemf gain = 0x%x", this->calibration_data_.bemf_gain);
+        ESP_LOGCONFIG(TAG, "    compensation = %d", this->calibration_data_.compensation);
+        ESP_LOGCONFIG(TAG, "    backemf = %d", this->calibration_data_.backemf);
+    }
 }
 
 

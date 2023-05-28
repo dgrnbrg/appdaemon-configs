@@ -1,4 +1,5 @@
 from esphome import pins
+import hashlib
 import esphome.codegen as cg
 from esphome import automation
 import esphome.config_validation as cv
@@ -89,6 +90,12 @@ async def to_code(config):
     await cg.register_component(var, config)
     await i2c.register_i2c_device(var, config)
     en_pin_var = await cg.gpio_pin_expression(config[CONF_EN_PIN])
+
+    # hash the name to save prefs
+    hash_ = int(hashlib.md5(config[CONF_ID].id.encode()).hexdigest()[:8], 16)
+    print(f"DRV2605 name hash is {hex(hash_)}")
+    cg.add(var.set_name_hash(hash_))
+
     cg.add(var.set_en_pin(en_pin_var))
     cg.add(var.set_rated_voltage_reg(int(rated_voltage_reg)))
     cg.add(var.set_overdrive_reg(int(overdrive_reg)))

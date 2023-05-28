@@ -134,6 +134,12 @@
 namespace esphome {
 namespace drv2605 {
 
+struct DRV2605CalibrationData {
+    uint8_t bemf_gain;
+    uint8_t compensation;
+    uint8_t backemf;
+};
+
 class DRV2605Component : public i2c::I2CDevice, public Component {
  public:
   void setup() override;
@@ -146,7 +152,10 @@ class DRV2605Component : public i2c::I2CDevice, public Component {
   void fire_waveform(uint8_t waveform_id);
   void calibrate();
   void reset();
+  void set_name_hash(uint32_t name_hash) { this->name_hash_ = name_hash; }
+
  protected:
+  void populate_config_regs();
     GPIOPin *en_pin_;
     bool en_pending_deassert_;
     bool pending_reset_;
@@ -154,6 +163,10 @@ class DRV2605Component : public i2c::I2CDevice, public Component {
     uint8_t rated_voltage_reg_value;
     uint8_t overdrive_reg_value;
     uint8_t drive_time_reg_value;
+    ESPPreferenceObject pref_;
+    DRV2605CalibrationData calibration_data_;
+    bool has_calibration;
+    uint32_t name_hash_{};
 };
 
 
