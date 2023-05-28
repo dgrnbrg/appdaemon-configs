@@ -1,0 +1,253 @@
+substitutions:
+  device_name: lightswitch
+
+esphome:
+  name: lightswitch
+  friendly_name: lightswitch
+    #  libraries:
+    #    - sparkfun/SparkFun Haptic Motor Driver@^1.1.1
+
+drv2605:
+  id: haptic
+  en_pin: GPIO2
+  rated_voltage: 1.8V
+  resonant_frequency: 205Hz
+
+esp32:
+#  board: wesp32
+  board: esp32-poe-iso
+# framework:
+#   type: esp-idf
+#   version: recommended
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+ota:
+  password: ""
+
+ethernet:
+  type: RTL8201
+  mdc_pin: GPIO16
+  mdio_pin: GPIO17
+  clk_mode: GPIO0_IN
+  phy_addr: 0
+
+i2c:
+  scl: GPIO14
+  sda: GPIO15
+  scan: true
+  id: i2c_bus
+
+i2s_audio:
+  i2s_lrclk_pin: GPIO18
+  i2s_bclk_pin: GPIO33
+  i2s_mclk_pin: GPIO32
+
+microphone:
+  - platform: i2s_audio
+    i2s_din_pin: GPIO14
+    adc_type: external
+    pdm: false
+
+media_player:
+  - platform: i2s_audio
+    name: ESPHome I2S Media Player
+    dac_type: external
+    i2s_dout_pin: GPIO5
+    mode: mono
+
+nau8810:
+  id: nau8810_device
+
+number:
+  - platform: template
+    name: Speaker Volume
+    min_value: 0
+    max_value: 256
+    step: 1
+    lambda: |-
+      return id(nau8810_device)->get_speaker_volume();
+    set_action:
+      then:
+        - nau8810.set_speaker_volume:
+            id: nau8810_device
+            volume: !lambda return (int)x;
+
+
+switch:
+  - platform: gpio
+    pin: GPIO12
+    id: dvi_bh17540
+      #internal: true
+    name: DVI for BH1750
+  - platform: template
+    name: Mute Speaker
+    optimistic: true
+    restore_state: true
+    turn_on_action:
+      then:
+        - lambda: |-
+            id(nau8810_device)->set_speaker_mute(true);
+    turn_off_action:
+      then:
+        - lambda: |-
+            id(nau8810_device)->set_speaker_mute(false);
+
+
+light:
+  - platform: fastled_clockless
+    rgb_order: GRB
+    chipset: SK6812
+    pin: GPIO13
+    num_leds: 42
+    internal: true
+    id: led_pixels
+  - platform: partition
+    name: Light Divider
+    segments:
+      - id: led_pixels
+        from: 10
+        to: 14
+  - platform: partition
+    name: Environment Divider
+    segments:
+      - id: led_pixels
+        from: 23
+        to: 31
+  - platform: partition
+    name: Vertical Line
+    segments:
+      - id: led_pixels
+        from: 0
+        to: 9
+      - id: led_pixels
+        from: 15
+        to: 22
+      - id: led_pixels
+        from: 32
+        to: 41
+
+mpr121:
+  id: mpr121_
+  address: 0x5C
+  touch_debounce: 1
+  release_debounce: 1
+  touch_threshold: 10
+  release_threshold: 7
+
+binary_sensor:
+   - platform: gpio
+     name: Touch Device IRQ
+     pin:
+       number: GPIO35
+       mode:
+         input: true
+   - platform: mpr121
+     id: button_bottom_left
+     channel: 0
+     name: Light down
+     on_press:
+       then:
+         - drv2605.fire_haptic:
+             id: haptic
+             waveform: 1
+   - platform: mpr121
+     id: button_top_left
+     channel: 1
+     name: Light up
+     on_press:
+       then:
+         - drv2605.fire_haptic:
+             id: haptic
+             waveform: 4
+   - platform: mpr121
+     id: button_bottom_right
+     channel: 2
+     name: Environment down
+     on_press:
+       then:
+         - drv2605.fire_haptic:
+             id: haptic
+             waveform: 7
+   - platform: mpr121
+     id: button_top_right
+     channel: 3
+     name: Environment up
+     on_press:
+       then:
+         - drv2605.fire_haptic:
+             id: haptic
+             waveform: 54
+   - platform: mpr121
+     id: button_proximity
+     channel: 12
+     name: Proximity
+   - platform: status
+     name: "${device_name} Status"
+
+
+bme680_bsec:
+
+sensor:
+  - platform: bme680_bsec
+    temperature:
+      name: "BME680 Temperature"
+    pressure:
+      name: "BME680 Pressure"
+    humidity:
+      name: "BME680 Humidity"
+    iaq:
+      name: "BME680 IAQ"
+      id: iaq
+    co2_equivalent:
+      name: "BME680 CO2 Equivalent"
+    breath_voc_equivalent:
+      name: "BME680 Breath VOC Equivalent"
+
+  - platform: bh1750
+    name: "BH1750 Illuminance"
+    address: 0x23
+    update_interval: 60s
+
+text_sensor:
+  - platform: bme680_bsec
+    iaq_accuracy:
+      name: "BME680 IAQ Accuracy"
+
+  - platform: template
+    name: "BME680 IAQ Classification"
+    icon: "mdi:checkbox-marked-circle-outline"
+    lambda: |-
+      if ( int(id(iaq).state) <= 50) {
+        return {"Excellent"};
+      }
+      else if (int(id(iaq).state) >= 51 && int(id(iaq).state) <= 100) {
+        return {"Good"};
+      }
+      else if (int(id(iaq).state) >= 101 && int(id(iaq).state) <= 150) {
+        return {"Lightly polluted"};
+      }
+      else if (int(id(iaq).state) >= 151 && int(id(iaq).state) <= 200) {
+        return {"Moderately polluted"};
+      }
+      else if (int(id(iaq).state) >= 201 && int(id(iaq).state) <= 250) {
+        return {"Heavily polluted"};
+      }
+      else if (int(id(iaq).state) >= 251 && int(id(iaq).state) <= 350) {
+        return {"Severely polluted"};
+      }
+      else if (int(id(iaq).state) >= 351) {
+        return {"Extremely polluted"};
+      }
+      else {
+        return {"error"};
+      }
+
+
