@@ -139,13 +139,18 @@ class DRV2605Component : public i2c::I2CDevice, public Component {
   void setup() override;
   void loop() override;
   void dump_config() override;
-  void set_en_pin(InternalGPIOPin *pin) { this->en_pin_ = pin; }
+  void set_en_pin(GPIOPin *pin) { this->en_pin_ = pin; }
   void set_rated_voltage_reg(uint8_t x) { this->rated_voltage_reg_value = x; }
   void set_overdrive_reg(uint8_t x) { this->overdrive_reg_value = x; }
   void set_drive_time_reg_value(uint8_t x) { this->drive_time_reg_value = x; }
   void fire_waveform(uint8_t waveform_id);
+  void calibrate();
+  void reset();
  protected:
-    InternalGPIOPin *en_pin_;
+    GPIOPin *en_pin_;
+    bool en_pending_deassert_;
+    bool pending_reset_;
+    bool pending_calibrate_;
     uint8_t rated_voltage_reg_value;
     uint8_t overdrive_reg_value;
     uint8_t drive_time_reg_value;
@@ -165,6 +170,27 @@ template<typename... Ts> class FireHapticAction : public Action<Ts...> {
   DRV2605Component *parent_;
 };
 
+template<typename... Ts> class CalibrateAction : public Action<Ts...> {
+ public:
+  CalibrateAction(DRV2605Component *parent) : parent_(parent) {}
+
+  void play(Ts... x) override {
+    this->parent_->calibrate();
+  }
+
+  DRV2605Component *parent_;
+};
+
+template<typename... Ts> class ResetAction : public Action<Ts...> {
+ public:
+  ResetAction(DRV2605Component *parent) : parent_(parent) {}
+
+  void play(Ts... x) override {
+    this->parent_->reset();
+  }
+
+  DRV2605Component *parent_;
+};
 
 }  // namespace drv2605
 }  // namespace esphome
