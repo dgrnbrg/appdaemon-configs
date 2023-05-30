@@ -4,14 +4,15 @@ substitutions:
 esphome:
   name: lightswitch
   friendly_name: lightswitch
-    #  libraries:
-    #    - sparkfun/SparkFun Haptic Motor Driver@^1.1.1
 
 drv2605:
   id: haptic
-  en_pin: GPIO2
+  en_pin: GPIO14
+    #rated_voltage: 0.2V
   rated_voltage: 1.8V
   resonant_frequency: 205Hz
+    #resonant_frequency: 250Hz
+    #update_interval: 1s
 
 esp32:
 #  board: wesp32
@@ -32,29 +33,50 @@ api:
 ota:
   password: ""
 
-ethernet:
-  type: RTL8201
-  mdc_pin: GPIO16
-  mdio_pin: GPIO17
-  clk_mode: GPIO0_IN
-  phy_addr: 0
+wifi:
+  ssid: 74ax4k
+  password: twosigma
+    #ethernet:
+    #  type: LAN8720
+    #  mdc_pin: GPIO23
+    #  mdio_pin: GPIO18
+    #  clk_mode: GPIO17_OUT
+    #  phy_addr: 0
+    #  power_pin: GPIO12
+    #  manual_ip:
+    #    static_ip: 192.168.20.70
+    #    gateway: 192.168.20.1
+    #    subnet: 255.255.255.0
+    #  use_address: 192.168.20.70
 
 i2c:
-  scl: GPIO14
-  sda: GPIO15
+  scl: GPIO3
+  sda: GPIO2
   scan: true
   id: i2c_bus
 
 i2s_audio:
-  i2s_lrclk_pin: GPIO18
+  i2s_lrclk_pin: GPIO16
+  i2s_mclk_pin: GPIO0
   i2s_bclk_pin: GPIO33
-  i2s_mclk_pin: GPIO32
 
 microphone:
   - platform: i2s_audio
-    i2s_din_pin: GPIO14
+    i2s_din_pin: GPIO4
     adc_type: external
     pdm: false
+    id: nau_mic
+
+voice_assistant:
+  microphone: nau_mic
+  speaker: nau_spkr
+
+speaker:
+  - platform: i2s_audio
+    dac_type: external
+    i2s_dout_pin: GPIO5
+    mode: mono
+    id: nau_spkr
 
 media_player:
   - platform: i2s_audio
@@ -68,9 +90,23 @@ nau8810:
 
 number:
   - platform: template
+    name: waveform of choice press
+    id: wv_o_c
+    min_value: 1
+    max_value: 255
+    step: 1
+    optimistic: true
+  - platform: template
+    name: waveform of choice release
+    id: wv_o_c2
+    min_value: 1
+    max_value: 255
+    step: 1
+    optimistic: true
+  - platform: template
     name: Speaker Volume
     min_value: 0
-    max_value: 256
+    max_value: 63
     step: 1
     lambda: |-
       return id(nau8810_device)->get_speaker_volume();
@@ -102,13 +138,20 @@ switch:
 
 
 light:
-  - platform: fastled_clockless
-    rgb_order: GRB
-    chipset: SK6812
-    pin: GPIO13
+  - platform: neopixelbus
+    type: GRB
+    variant: SK6812
+    pin: GPIO15
     num_leds: 42
     internal: true
     id: led_pixels
+  #- platform: fastled_clockless
+  #  rgb_order: GRB
+  #  chipset: SK6812
+  #  pin: GPIO15
+  #  num_leds: 42
+  #  internal: true
+  #  id: led_pixels
   - platform: partition
     name: Light Divider
     segments:
@@ -142,13 +185,36 @@ mpr121:
   touch_threshold: 10
   release_threshold: 7
 
+button:
+  - platform: restart
+    name: Restart device
+    id: restart_internal
+    entity_category: config 
+  - platform: safe_mode
+    name: Safe Mode Boot
+    entity_category: diagnostic
+  - platform: template
+    name: Reset DRV2605L
+    entity_category: diagnostic
+    on_press:
+      then:
+        - drv2605.reset:
+            id: haptic
+  - platform: template
+    name: Calibrate DRV2605L
+    entity_category: diagnostic
+    on_press:
+      then:
+        - drv2605.calibrate:
+            id: haptic
+
 binary_sensor:
-   - platform: gpio
-     name: Touch Device IRQ
-     pin:
-       number: GPIO35
-       mode:
-         input: true
+  #   - platform: gpio
+  #     name: Touch Device IRQ
+  #     pin:
+  #       number: GPIO35
+  #       mode:
+  #         input: true
    - platform: mpr121
      id: button_bottom_left
      channel: 0
@@ -157,7 +223,12 @@ binary_sensor:
        then:
          - drv2605.fire_haptic:
              id: haptic
-             waveform: 1
+             waveform: !lambda return id(wv_o_c).state;
+     on_release:
+       then:
+         - drv2605.fire_haptic:
+             id: haptic
+             waveform: !lambda return id(wv_o_c2).state;
    - platform: mpr121
      id: button_top_left
      channel: 1
@@ -182,13 +253,19 @@ binary_sensor:
      name: Environment up
      on_press:
        then:
-         - drv2605.fire_haptic:
-             id: haptic
-             waveform: 54
+         - voice_assistant.start:
+     on_release:
+       then:
+         - voice_assistant.stop:
+         #         - drv2605.fire_haptic:
+         #             id: haptic
+         #             waveform: 54
    - platform: mpr121
      id: button_proximity
      channel: 12
      name: Proximity
+       #     touch_threshold: 5
+       #     release_threshold: 5
    - platform: status
      name: "${device_name} Status"
 
