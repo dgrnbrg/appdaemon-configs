@@ -70,7 +70,7 @@ nau881x_status_t NAU881x_Set_PGA_Gain_db(NAU881x_t* nau881x, float vol_db)
     vol_db -= rounding / 100.0;
     // Convert to val for register
     uint8_t val = (vol_db + 12) / 0.75;
-    return NAU881x_Set_PGA_Volume(nau881x, val);
+    return NAU881x_Set_PGA_Gain(nau881x, val);
 }
 
 uint8_t NAU881x_Get_PGA_Gain(NAU881x_t* nau881x)

@@ -8,6 +8,9 @@ extern "C" {
 #include <stdint.h>
 #include "nau881x_regs.h"
 
+extern void nau8810_I2C_Write(void * p, uint8_t i2c_address, uint8_t reg, uint16_t value);
+extern uint16_t nau8810_I2C_Read(void * p, uint8_t i2c_address, uint8_t reg);
+
 #define NAU881X_REG_WRITE(handle, reg, val) nau8810_I2C_Write(handle, NAU881X_I2C_ADDRESS, reg, val)
 #define NAU881X_REG_READ(handle, reg) nau8810_I2C_Read(handle, NAU881X_I2C_ADDRESS, reg)
 
