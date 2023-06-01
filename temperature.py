@@ -193,6 +193,7 @@ class BasicThermostatController(hass.Hass):
         self.listen_event(self.wind_down_event, self.args["events"]["sleep"]["name"], actionName= self.args["events"]["sleep"]["actionName"])
         self.listen_event(self.morning_alarm_event, self.args["events"]["wake"]["name"], actionName= self.args["events"]["wake"]["actionName"])
         self.run_daily(self.determine_if_warm_or_cool_day, '04:00:00')
+        self.sleep_rapid_cool_cancel_watch_handle = None
         self.presence = [parse_conditional_expr(x) for x in self.args['presence']]
         self.people = {ent: 'unknown' for (_,_,ent) in self.presence}
         self.presence_state = 'home'
@@ -215,6 +216,19 @@ class BasicThermostatController(hass.Hass):
         # The next things allow us to change from heating to cooling and reprogram away setbacks, etc
         self.today_conf_based_on_state = None
         self.listen_state(self.heating_mode_changed, self.thermostat)
+        self.listen_state(self.monitor_for_mode_change, self.thermostat, attribute='current_temperature')
+
+    @ad.app_lock
+    def monitor_for_mode_change(self, entity, attr, old, new, kwargs):
+        if new is None:
+            return # happens on unavailable transitions when the thermostat is off
+        cur_state = self.get_state(self.thermostat)
+        if new < self.args['heat']['away'] and cur_state == 'cool':
+            self.log(f"changed mode to heat because it's {new} degrees in here")
+            self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'heat')
+        elif new > self.args['cool']['away'] and cur_state == 'heat':
+            self.log(f"changed mode to cool because it's {new} degrees in here")
+            self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'cool')
 
     def setup_listen_state(self, cb, present_state, absent_state, entity, **kwargs):
         cur_state = self.get_state(entity)
@@ -367,6 +381,7 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def heating_mode_changed(self, entity, attr, old, new, kwargs):
         self.log(f"heating mode changed: {entity}.{attr}' was '{old}', now '{new}'")
+        self.cancel_sleep_rapid_cool_callback('', '', '', -1, {'force': True})
         if self.today_conf_based_on_state != new:
             self.log(f"Now will redetermine warm or cool day")
             self.determine_if_warm_or_cool_day({})
@@ -422,22 +437,27 @@ class BasicThermostatController(hass.Hass):
             extra_args = {}
             if self.today_conf_based_on_state == 'heat':
                 current_outside_temp = self.get_state(self.weather_ent, attribute="temperature")
-                if current_outside_temp + 15 > sleep_temp:
-                    self.log(f"Since outside temp = {current_outside_temp} and sleep temp is {sleep_temp}, cooling us for a bit")
+                if current_outside_temp > sleep_temp - 20: # TODO document or configure the 20 degree. Is that even right?
+                    self.log(f"Since outside temp = {current_outside_temp} and sleep temp is {sleep_temp} and it's currently {self.get_state(self.thermostat, attribute='current_temperature')}, cooling us for a bit")
                     extra_args = {'hvac_mode': 'cool'}
-                    self.sleep_rapid_cool_cancel_watch_handle = self.listen_state(self.cancel_sleep_rapid_cool_callback, self.thermostat, attribute='temperature', sleep_temp=sleep_temp)
+                    self.sleep_rapid_cool_cancel_watch_handle = self.listen_state(self.cancel_sleep_rapid_cool_callback, self.thermostat, attribute='current_temperature', sleep_temp=sleep_temp)
+                else:
+                    self.log(f"Since outside temp = {current_outside_temp} and sleep temp is {sleep_temp}, we'll passively cool")
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = sleep_temp, **extra_args)
 
     @ad.app_lock
     def cancel_sleep_rapid_cool_callback(self, entity, attr, old, new, kwargs):
-        if new <= kwargs['sleep_temp']:
-            self.log(f"Achieved the target sleep temp {new}, resuming heating")
-            self.cancel_listen_state(self.sleep_rapid_cool_cancel_watch_handle)
-            del self.sleep_rapid_cool_cancel_watch_handle
+        force = kwargs.get('force', False)
+        if new <= kwargs['sleep_temp'] or force:
+            self.log(f"Achieved the target sleep temp {new}, resuming heating (force={force})")
+            if self.sleep_rapid_cool_cancel_watch_handle:
+                self.cancel_listen_state(self.sleep_rapid_cool_cancel_watch_handle)
+            self.sleep_rapid_cool_cancel_watch_handle = None
             self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'heat')
 
     @ad.app_lock
     def morning_alarm_event(self, event_name, data, kwargs):
         if self.today_conf:
             self.cancel_climb_heat_mode("presence change to morning alarm")
+            self.cancel_sleep_rapid_cool_callback('', '', '', -1, {'force': True})
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['target_temp'])
