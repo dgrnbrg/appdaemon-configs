@@ -198,7 +198,7 @@ class CleaningManager(hass.Hass):
 
     def next_job(self, kwargs):
         if self.ready_service_args:
-            self.log(f"not trying to schedule because we've already got a job running")
+            self.log(f"not trying to schedule because we've already got a job running (sensors = {self.sensor_states})")
             return
         if self.get_state(self.vacuum) not in ['docked', 'idle']:
             self.log(f"not trying to schedule because we're doing something now")
@@ -303,7 +303,7 @@ class CleaningManager(hass.Hass):
         if self.debug_enabled:
             self.log(f"observed state change for {entity} from {old} to {new}")
         # TODO looks like we want a 3 state track of 'returning_home' -> 'emptying_the_bin' -> 'charging'
-        if old == 'emptying_the_bin' and new == 'charging':
+        if new == 'charging':
             if self.debug_enabled:
                 self.log(f"Finished cleaning and returning to dock, job is done")
             self.ready_service_args = None

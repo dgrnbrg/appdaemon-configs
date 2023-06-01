@@ -175,15 +175,20 @@ class IrkTracker(hass.Hass):
                 rssi_limit = weighted_votes[0][0] * self.min_superplurality
                 for i in range(within_top):
                     if weighted_votes[i][2] in nearest_beacons and weighted_votes[i][0] <= rssi_limit:
-                        fused_tracker = self.get_entity(self.fused_trackers[person])
-                        fused_tracker.set_state(state='just_left')
+                        self.set_person_fused_tracker_state(person, 'just_left', device_ent)
+                        # Now, this could be an incorrect operation. So, if time passes and GPS doesn't pick up, treat as at home again
+                        self.schedule_arrival_after_delay(person)
             else:
                 self.log(f"pullout for {person} has no weighted votes")
+
+    def schedule_arrival_after_delay(self, person):
+        cb_token = self.run_in(self.arrived_home, person=person, delay=self.args['away_tracker_arrival_delay_secs'])
+        self.away_tracker_pending_arrivals[person] = cb_token
 
     def set_person_fused_tracker_state(self, person, state, from_device='bug'):
         fused_tracker = self.get_entity(self.fused_trackers[person])
         fused_tracker.set_state(state=state)
-        if state == 'away':
+        if state in ['away', 'just_left']:
             person_ent = self.get_entity(f'device_tracker.{person}_irk')
             person_ent.set_state(state='away', attributes={'from_device': from_device})
         fused_override_select = f"select.irk_tracker_fused_override_{person}"
@@ -207,14 +212,13 @@ class IrkTracker(hass.Hass):
                 self.log(f"doing nothing because we are already aware they're home")
             else:
                 self.log(f"acknowledging in {self.args['away_tracker_arrival_delay_secs']}")
-                cb_token = self.run_in(self.arrived_home, person=person, delay=self.args['away_tracker_arrival_delay_secs'])
-                self.away_tracker_pending_arrivals[person] = cb_token
+                self.schedule_arrival_after_delay(person)
 
     @ad.app_lock
     def arrived_home(self, kwargs):
         person = kwargs['person']
         self.log(f"registering that {person} arrived home (after delay)")
-        self.set_person_fused_tracker_state(person, 'home')
+        self.set_person_fused_tracker_state(person, 'home', 'arrived_after_delay')
 
     @ad.app_lock
     def override_fused_cb(self, event_name, data, kwargs):
@@ -291,7 +295,7 @@ class IrkTracker(hass.Hass):
                     break
             if not other_source_had_obs:
                 device_person = self.identities[matched_device]['person']
-                self.set_person_fused_tracker_state(device_person, 'just_arrived')
+                self.set_person_fused_tracker_state(device_person, 'just_arrived', f'saw {matched_device}')
                 self.log(f"{device_person} just arrived due to first observation from {matched_device}")
         obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
         self.tracking_resolve(matched_device)
@@ -341,7 +345,7 @@ class IrkTracker(hass.Hass):
                 weighted_votes.append((numerator / denominator, count, orig_source))
             weighted_votes.sort(key=lambda x: x[0], reverse=False)
             in_room = self.resolve_room2(weighted_votes, device)
-        self.log(f"total_votes={total_votes} in_room={in_room}")
+        #self.log(f"total_votes={total_votes} in_room={in_room}")
         device_person = self.identities[device]['person']
         # they're always here if they don't have a fused tracker, or they're in a "home" state
         person_is_home = device_person not in self.fused_trackers or self.get_state(self.fused_trackers[device_person]) in ['home', 'just_arrived']
