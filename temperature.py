@@ -383,6 +383,9 @@ class BasicThermostatController(hass.Hass):
 
     @ad.app_lock
     def heating_mode_changed(self, entity, attr, old, new, kwargs):
+        if old == 'unavailable' or new == 'unavailable':
+            # ignore flakiness of connectivity
+            return
         self.log(f"heating mode changed: {entity}.{attr}' was '{old}', now '{new}'")
         self.cancel_sleep_rapid_cool_callback('', '', '', -1, {'force': True})
         if self.today_conf_based_on_state != new:
