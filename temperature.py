@@ -314,7 +314,10 @@ class BasicThermostatController(hass.Hass):
         self.people[entity] = 'away'
         self.update_temp_by_presence()
 
-    def update_temp_by_presence(self):
+    def update_temp_by_presence(self, force_set=False):
+        """
+        force_set means that we set even if it's not a change from before
+        """
         #self.log(f"people = {self.people}")
         if len(self.people) != len([k for k,v in self.people.items() if v != 'unknown']):
             #self.log("bailing early")
@@ -326,7 +329,7 @@ class BasicThermostatController(hass.Hass):
         report_ent = self.get_entity(self.report_ent_name)
         self.log(f"updating {self.presence_state} {any_home} {self.people}")
         thermostat_state =  self.get_state(self.thermostat, attribute='all')
-        if self.presence_state != 'home' and any_home:
+        if (force_set or self.presence_state != 'home') and any_home:
             self.cancel_climb_heat_mode("presence change to home")
             self.presence_state = 'home'
             target_temp = self.today_conf['saved_temperature'] if 'saved_temperature' in self.today_conf else self.today_conf['target_temp']
@@ -344,7 +347,7 @@ class BasicThermostatController(hass.Hass):
                 self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = target_temp)
                 self.log(f"Updated temp since we're home to {target_temp}")
             report_ent.set_state(state='home', attributes=self.today_conf)
-        if self.presence_state == 'home' and not any_home:
+        elif (force_set or self.presence_state == 'home') and not any_home:
             self.cancel_climb_heat_mode("presence change to away")
             self.presence_state = 'away'
             self.today_conf['saved_temperature'] = thermostat_state['attributes']['temperature']
@@ -385,6 +388,7 @@ class BasicThermostatController(hass.Hass):
         if self.today_conf_based_on_state != new:
             self.log(f"Now will redetermine warm or cool day")
             self.determine_if_warm_or_cool_day({})
+            self.update_temp_by_presence(force_set=True)
 
     @ad.app_lock
     def determine_if_warm_or_cool_day(self, kwargs):
@@ -448,12 +452,13 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def cancel_sleep_rapid_cool_callback(self, entity, attr, old, new, kwargs):
         force = kwargs.get('force', False)
-        if new <= kwargs['sleep_temp'] or force:
-            self.log(f"Achieved the target sleep temp {new}, resuming heating (force={force})")
+        if force or new <= kwargs['sleep_temp']:
             if self.sleep_rapid_cool_cancel_watch_handle:
                 self.cancel_listen_state(self.sleep_rapid_cool_cancel_watch_handle)
             self.sleep_rapid_cool_cancel_watch_handle = None
-            self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'heat')
+            if not force:
+                self.log(f"Achieved the target sleep temp {new}, resuming heating (force={force})")
+                self.call_service('climate/set_hvac_mode', entity_id = self.thermostat, hvac_mode = 'heat')
 
     @ad.app_lock
     def morning_alarm_event(self, event_name, data, kwargs):
