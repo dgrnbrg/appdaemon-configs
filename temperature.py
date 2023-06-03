@@ -376,8 +376,8 @@ class BasicThermostatController(hass.Hass):
         self.next_target = min(self.climb_target, new + self.max_diff_for_heat_pump)
         self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.next_target)
         if self.next_target >= self.climb_target:
-            self.cancel_climb_heat_mode()
             self.log(f"Finished climbing heat up to {self.climb_target}, since we reached {new}")
+            self.cancel_climb_heat_mode()
         else:
             self.log(f"Climbing heat up to {self.climb_target}, since we reached {new} we're bumping to {self.next_target}")
 
