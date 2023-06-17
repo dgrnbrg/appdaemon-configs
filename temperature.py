@@ -217,6 +217,7 @@ class BasicThermostatController(hass.Hass):
         self.today_conf_based_on_state = None
         self.listen_state(self.heating_mode_changed, self.thermostat)
         self.listen_state(self.monitor_for_mode_change, self.thermostat, attribute='current_temperature')
+        self.in_sleep_mode = False
 
     @ad.app_lock
     def monitor_for_mode_change(self, entity, attr, old, new, kwargs):
@@ -332,7 +333,15 @@ class BasicThermostatController(hass.Hass):
         if (force_set or self.presence_state != 'home') and any_home:
             self.cancel_climb_heat_mode("presence change to home")
             self.presence_state = 'home'
-            target_temp = self.today_conf['saved_temperature'] if 'saved_temperature' in self.today_conf else self.today_conf['target_temp']
+            if 'saved_temperature' in self.today_conf:
+                target_temp = self.today_conf['saved_temperature']
+                self.log(f"Using saved temperature {target_temp}")
+            elif self.in_sleep_mode:
+                target_temp = self.today_conf['sleep']
+                self.log(f"Using sleep temperature {target_temp}")
+            else:
+                target_temp = self.today_conf['target_temp']
+                self.log(f"Using target temperature {target_temp}")
             # if we are heating and the current temp is more than 4 degrees below the target, we must ramp to avoid using emheat mode
             current_temperature = thermostat_state['attributes']['current_temperature']
             if thermostat_state['state'] == 'heat' and current_temperature + self.max_diff_for_heat_pump < target_temp:
@@ -434,6 +443,7 @@ class BasicThermostatController(hass.Hass):
     @ad.app_lock
     def wind_down_event(self, event_name, data, kwargs):
         if self.today_conf:
+            self.in_sleep_mode = True
             sleep_temp = self.today_conf['sleep']
             self.cancel_climb_heat_mode("presence change to sleep.")
             self.log(f"Setting target temp to sleep={sleep_temp} and deleting saved_temperature={self.today_conf.get('saved_temperature')} (event data: {data})")
@@ -450,6 +460,7 @@ class BasicThermostatController(hass.Hass):
                     self.sleep_rapid_cool_cancel_watch_handle = self.listen_state(self.cancel_sleep_rapid_cool_callback, self.thermostat, attribute='current_temperature', sleep_temp=sleep_temp)
                 else:
                     self.log(f"Since outside temp = {current_outside_temp} and sleep temp is {sleep_temp}, we'll passively cool")
+            self.log(f"calling climate/set_temperature: entity_id={self.thermostat} temperature={sleep_temp} extra_args={{extra_args}}")
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = sleep_temp, **extra_args)
 
     @ad.app_lock
@@ -469,3 +480,4 @@ class BasicThermostatController(hass.Hass):
             self.cancel_climb_heat_mode("presence change to morning alarm")
             self.cancel_sleep_rapid_cool_callback('', '', '', -1, {'force': True})
             self.call_service('climate/set_temperature', entity_id = self.thermostat, temperature = self.today_conf['target_temp'])
+            self.in_sleep_mode = False
