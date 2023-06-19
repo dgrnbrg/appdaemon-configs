@@ -5,14 +5,13 @@ esphome:
   name: lightswitch
   friendly_name: lightswitch
 
+external_components:
+  - source: github://ayufan/esphome-components
+
 drv2605:
   id: haptic
-  en_pin: GPIO14
-    #rated_voltage: 0.2V
   rated_voltage: 1.8V
   resonant_frequency: 205Hz
-    #resonant_frequency: 250Hz
-    #update_interval: 1s
 
 esp32:
 #  board: wesp32
@@ -50,43 +49,71 @@ wifi:
     #  use_address: 192.168.20.70
 
 i2c:
-  scl: GPIO3
-  sda: GPIO2
+  scl: GPIO16
+  sda: GPIO13
   scan: true
   id: i2c_bus
 
+memory: # from ayufan/esphome-components; periodically prints free memory
+
 i2s_audio:
-  i2s_lrclk_pin: GPIO16
-  i2s_mclk_pin: GPIO0
-  i2s_bclk_pin: GPIO33
+  #  - id: i2s_mic
+  #    i2s_lrclk_pin: GPIO4
+  - id: i2s_amp
+    i2s_lrclk_pin: GPIO2
+    i2s_bclk_pin: GPIO14
 
 microphone:
   - platform: i2s_audio
-    i2s_din_pin: GPIO4
+    i2s_din_pin: GPIO35
     adc_type: external
-    pdm: false
-    id: nau_mic
+    pdm: true
+    id: mic_id
+      #    i2s_audio_id: i2s_mic
+    i2s_audio_id: i2s_amp
 
 voice_assistant:
-  microphone: nau_mic
-  speaker: nau_spkr
+  microphone: mic_id
+  speaker: amp_id
+  on_start:
+    then:
+    - output.turn_on: amp_en
+    - drv2605.fire_haptic:
+        id: haptic
+        waveform: 27
+  on_error:
+    then:
+    - drv2605.fire_haptic:
+        id: haptic
+        waveform: 56
+  on_end:
+    then:
+    - output.turn_off: amp_en
+    - drv2605.fire_haptic:
+        id: haptic
+        waveform: 44
 
 speaker:
   - platform: i2s_audio
     dac_type: external
-    i2s_dout_pin: GPIO5
+    i2s_dout_pin: GPIO3
     mode: mono
-    id: nau_spkr
+    id: amp_id
+    i2s_audio_id: i2s_amp
 
-media_player:
-  - platform: i2s_audio
-    name: ESPHome I2S Media Player
-    dac_type: external
-    i2s_dout_pin: GPIO5
-    mode: mono
-
-nau8810:
-  id: nau8810_device
+      #media_player:
+      #  - platform: i2s_audio
+      #    name: ESPHome I2S Media Player
+      #    dac_type: external
+      #    i2s_dout_pin: GPIO3
+      #    i2s_audio_id: i2s_amp
+      #    mode: mono
+      #    on_play:
+      #      output.turn_on: amp_en
+      #    on_pause:
+      #      output.turn_off: amp_en
+      #    on_idle:
+      #      output.turn_off: amp_en
 
 number:
   - platform: template
@@ -103,39 +130,16 @@ number:
     max_value: 255
     step: 1
     optimistic: true
-  - platform: template
-    name: Speaker Volume
-    min_value: 0
-    max_value: 63
-    step: 1
-    lambda: |-
-      return id(nau8810_device)->get_speaker_volume();
-    set_action:
-      then:
-        - nau8810.set_speaker_volume:
-            id: nau8810_device
-            volume: !lambda return (int)x;
 
-
-switch:
+output:
   - platform: gpio
-    pin: GPIO12
-    id: dvi_bh17540
-      #internal: true
-    name: DVI for BH1750
-  - platform: template
-    name: Mute Speaker
-    optimistic: true
-    restore_state: true
-    turn_on_action:
-      then:
-        - lambda: |-
-            id(nau8810_device)->set_speaker_mute(true);
-    turn_off_action:
-      then:
-        - lambda: |-
-            id(nau8810_device)->set_speaker_mute(false);
-
+    pin: GPIO32
+    id: ntc_vcc
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode: OUTPUT_OPEN_DRAIN
+    id: amp_en
 
 light:
   - platform: neopixelbus
@@ -145,25 +149,27 @@ light:
     num_leds: 42
     internal: true
     id: led_pixels
-  #- platform: fastled_clockless
-  #  rgb_order: GRB
-  #  chipset: SK6812
-  #  pin: GPIO15
-  #  num_leds: 42
-  #  internal: true
-  #  id: led_pixels
+    color_correct: [40%, 40%, 40% ] # limit max brightness
   - platform: partition
     name: Light Divider
     segments:
       - id: led_pixels
         from: 10
         to: 14
+    effects:
+      - addressable_twinkle:
+      - addressable_flicker:
+      - addressable_fireworks:
   - platform: partition
     name: Environment Divider
     segments:
       - id: led_pixels
         from: 23
         to: 31
+    effects:
+      - addressable_twinkle:
+      - addressable_flicker:
+      - addressable_fireworks:
   - platform: partition
     name: Vertical Line
     segments:
@@ -176,6 +182,11 @@ light:
       - id: led_pixels
         from: 32
         to: 41
+    effects:
+      - addressable_twinkle:
+      - addressable_flicker:
+      - addressable_fireworks:
+
 
 mpr121:
   id: mpr121_
@@ -209,65 +220,73 @@ button:
             id: haptic
 
 binary_sensor:
-  #   - platform: gpio
-  #     name: Touch Device IRQ
-  #     pin:
-  #       number: GPIO35
-  #       mode:
-  #         input: true
-   - platform: mpr121
-     id: button_bottom_left
-     channel: 0
-     name: Light down
-     on_press:
-       then:
-         - drv2605.fire_haptic:
-             id: haptic
-             waveform: !lambda return id(wv_o_c).state;
-     on_release:
-       then:
-         - drv2605.fire_haptic:
-             id: haptic
-             waveform: !lambda return id(wv_o_c2).state;
-   - platform: mpr121
-     id: button_top_left
-     channel: 1
-     name: Light up
-     on_press:
-       then:
-         - drv2605.fire_haptic:
-             id: haptic
-             waveform: 4
-   - platform: mpr121
-     id: button_bottom_right
-     channel: 2
-     name: Environment down
-     on_press:
-       then:
-         - drv2605.fire_haptic:
-             id: haptic
-             waveform: 7
-   - platform: mpr121
-     id: button_top_right
-     channel: 3
-     name: Environment up
-     on_press:
-       then:
-         - voice_assistant.start:
-     on_release:
-       then:
-         - voice_assistant.stop:
-         #         - drv2605.fire_haptic:
-         #             id: haptic
-         #             waveform: 54
-   - platform: mpr121
-     id: button_proximity
-     channel: 12
-     name: Proximity
-       #     touch_threshold: 5
-       #     release_threshold: 5
-   - platform: status
-     name: "${device_name} Status"
+  - platform: gpio
+    name: physical button
+    pin: 
+      number: GPIO34
+      inverted: true
+        #    on_press:
+        #      then:
+        #        - voice_assistant.start:
+        #    on_release:
+        #      then:
+        #        - voice_assistant.stop:
+  - platform: gpio
+    name: LED Power Fault
+    pin: GPIO36
+  - platform: mpr121
+    id: button_bottom_left
+    channel: 0
+    name: Light down
+    on_press:
+      then:
+        - drv2605.fire_haptic:
+            id: haptic
+            waveform: !lambda return id(wv_o_c).state;
+    on_release:
+      then:
+        - drv2605.fire_haptic:
+            id: haptic
+            waveform: !lambda return id(wv_o_c2).state;
+  - platform: mpr121
+    id: button_top_left
+    channel: 1
+    name: Light up
+    on_press:
+      then:
+        - drv2605.fire_haptic:
+            id: haptic
+            waveform: 4
+  - platform: mpr121
+    id: button_bottom_right
+    channel: 2
+    name: Environment down
+    on_press:
+      then:
+        - drv2605.fire_haptic:
+            id: haptic
+            waveform: 7
+  - platform: mpr121
+    id: button_top_right
+    channel: 3
+    name: Environment up
+    on_press:
+      then:
+        - voice_assistant.start:
+    on_release:
+      then:
+        - voice_assistant.stop:
+        #         - drv2605.fire_haptic:
+        #             id: haptic
+        #             waveform: 54
+  - platform: mpr121
+    id: button_proximity
+    channel: 12
+    name: Proximity
+      #     touch_threshold: 5
+      #     release_threshold: 5
+  - platform: status
+    name: "${device_name} Status"
 
 
 bme680_bsec:
@@ -292,6 +311,33 @@ sensor:
     name: "BH1750 Illuminance"
     address: 0x23
     update_interval: 60s
+
+  - platform: ntc
+    name: "Board temperature"
+    sensor: board_temp_resistance
+    entity_category: diagnostic
+    calibration:
+      b_constant: 3435
+      reference_temperature: 25C
+      reference_resistance: 10kOhm
+  - platform: resistance
+    id: board_temp_resistance
+    sensor: board_temp_source
+    configuration: UPSTREAM
+    resistor: 10kOhm
+  - platform: adc
+    pin: GPIO33
+    id: board_temp_source
+    update_interval: never
+    attenuation: 11db
+    internal: true
+
+interval:
+  - interval: 30s
+    then:
+      - output.turn_on: ntc_vcc
+      - component.update: board_temp_source
+      - output.turn_off: ntc_vcc
 
 text_sensor:
   - platform: bme680_bsec
