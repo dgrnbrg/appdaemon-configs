@@ -203,11 +203,11 @@ class IrkTracker(hass.Hass):
                 # cancel a pending arrival if we got a new not here event
                 self.cancel_timer(self.away_tracker_pending_arrivals[person])
                 del self.away_tracker_pending_arrivals[person]
-                self.log(f"canceled pending arrival timer")
+                self.log(f"canceled pending arrival timer for {person} because they are {new}")
             self.set_person_fused_tracker_state(person, 'away', entity)
         else:
             cur_state = self.get_state(self.fused_trackers[person])
-            self.log(f"arrived home, current fused state = {cur_state}")
+            self.log(f"{person} arrived home, current fused state = {cur_state}")
             if cur_state == 'home':
                 self.log(f"doing nothing because we are already aware they're home")
             else:
@@ -230,7 +230,7 @@ class IrkTracker(hass.Hass):
         if person in self.away_tracker_pending_arrivals:
             self.cancel_timer(self.away_tracker_pending_arrivals[person])
             del self.away_tracker_pending_arrivals[person]
-            self.log(f"canceled pending arrival timer for {person}")
+            self.log(f"canceled pending arrival timer for {person} because of override")
         self.set_person_fused_tracker_state(person, option, 'fused_override')
 
 
