@@ -2,9 +2,11 @@ import logging
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
 import hassapi as hass
+import traceback
 import adbase as ad
 
 class GoPortParkingController(hass.Hass):
@@ -14,7 +16,9 @@ class GoPortParkingController(hass.Hass):
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-dev-shm-usage')
-        self.driver = webdriver.Chrome('chromedriver', options=chrome_options)
+        chrome_options.add_argument('--disable-extensions')
+        chrome_service = Service(executable_path='/usr/bin/chromedriver')
+        self.driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
         self.log(f"initialized parking driver")
         self.buttons = []
         for plate in self.args['plates']:
@@ -35,7 +39,10 @@ class GoPortParkingController(hass.Hass):
         self.pending_plates = []
 
     def terminate(self):
-        self.driver.close()
+        try:
+            self.driver.close()
+        except Exception:
+            self.log(f"failed to terminate properly: {traceback.format_exc()}")
 
     def parking_pass_email_cb(self, entity, attr, old, new, kwargs):
         if len(self.pending_plates) > 0:
@@ -93,3 +100,4 @@ class GoPortParkingController(hass.Hass):
         quick_buy_confirm.click()
         print(f"bought the daily pass (confirm={quick_buy_confirm})")
         self.pending_plates.append(plate)
+
