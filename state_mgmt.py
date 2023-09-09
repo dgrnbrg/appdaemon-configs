@@ -214,7 +214,7 @@ class RoomAugmenter(hass.Hass):
             self.trapped_token = None
         if self.debug_mode:
             self.log(f'Updated state due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
-        if publish_state == 'off' and self.any_borders_on() or self.any_interior_on():
+        if publish_state == 'off' and (self.any_borders_on() or self.any_interior_on()):
             self.log(f'INCORRECT--not publishing: due to {new_state} from {old_state} to {self.current_state}, publishing "{publish_state}"')
             publish_state = None
         if publish_state is not None:
