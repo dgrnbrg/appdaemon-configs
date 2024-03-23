@@ -137,61 +137,75 @@ binary_sensor:
         mode:
           input: true
      name: "David PIR Under Bed"
+     id: david_pir
      filters:
       - delayed_off: 30s
      on_press:
        then:
-        - if:
-            condition:
-              binary_sensor.is_on: ha_dna_sleeping
-            then:
-              - light.turn_on:
-                  id: under_bed_light
-                  brightness: 65%
-                  red: 100%
-                  green: 0%
-                  blue: 0%
-                  transition_length: 3s
-              - wait_until:
-                  condition:
-                    binary_sensor.is_on: david_side
-                  timeout: 300s
-              - light.turn_off:
-                  id: under_bed_light
-                  transition_length: 0s
+         - script.execute:
+            id: turn_on_underbed_light
+            activate: true
+     on_release:
+       then:
+         - script.execute:
+            id: turn_on_underbed_light
+            activate: false
    - platform: gpio
      pin:
       number: GPIO21
       mode:
         input: true
      name: "Aysylu PIR Under Bed"
+     id: aysylu_pir
      filters:
         - delayed_off: 30s
      on_press:
        then:
-        - if:
-            condition:
-              binary_sensor.is_on: ha_dna_sleeping
-            then:
-              - light.turn_on:
-                  id: under_bed_light
-                  brightness: 65%
-                  red: 100%
-                  green: 0%
-                  blue: 0%
-                  transition_length: 3s
-              - wait_until:
-                  condition:
-                    binary_sensor.is_on: aysylu_side
-                  timeout: 300s
-              - light.turn_off:
-                  id: under_bed_light
-                  transition_length: 0s
+         - script.execute:
+            id: turn_on_underbed_light
+            activate: true
+     on_release:
+       then:
+         - script.execute:
+            id: turn_on_underbed_light
+            activate: false
    - platform: homeassistant
      entity_id: input_boolean.dna_sleeping
      id: ha_dna_sleeping
 
 
+script:
+  - id: turn_on_underbed_light
+    mode: restart
+    parameters:
+      activate: bool
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: ha_dna_sleeping
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    return activate;
+                then:
+                  - light.turn_on:
+                      id: under_bed_light
+                      brightness: 100%
+                      red: 100%
+                      green: 85%
+                      blue: 0%
+                      transition_length: 500ms
+                else:
+                  - if:
+                      condition:
+                        and:
+                          - binary_sensor.is_off: david_pir
+                          - binary_sensor.is_off: aysylu_pir
+                      then:
+                        - light.turn_off:
+                            id: under_bed_light
+                            transition_length: 250ms
 
 
 
