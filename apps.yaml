@@ -51,19 +51,19 @@ tracker:
   tracking_window_minutes: 3
   tracking_min_superplurality: 1.3
   ping_halflife_seconds: 60
-  room_presence:
-    downstairs:
-      - binary_sensor.basement_occupancy
-    david-office:
-      - binary_sensor.david_office_occupancy
-    aysylu-office:
-      - binary_sensor.aysylu_office_occupancy
-    bedroom:
-      - binary_sensor.someone_in_bed
-      - binary_sensor.bedroom_occupancy
-    main-floor:
-      - binary_sensor.main_floor_occupancy
-      - binary_sensor.kitchen_occupancy
+    # uncomment to enable the coupling of irk to presence sensing
+    #room_presence:
+    #  downstairs:
+    #    - binary_sensor.basement_occupancy
+    #  david-office:
+    #    - binary_sensor.david_office_occupancy
+    #  aysylu-office:
+    #    - binary_sensor.aysylu_office_occupancy
+    #  bedroom:
+    #    - binary_sensor.bedroom_occupancy
+    #  main-floor:
+    #    - binary_sensor.main_floor_occupancy
+    #    - binary_sensor.kitchen_occupancy
   room_aliases:
     basement_beacon: downstairs
     ep1-david-office:
@@ -140,6 +140,8 @@ living_room_lights:
       transition: 8
     - presence:
       - binary_sensor.main_floor_presence_augmented
+      delay_off: 120
+
 #    - presence:
 #      - device_tracker.david_fused in [home, just_arrived]
 #      - device_tracker.aysylu_fused in [home, just_arrived]
@@ -178,7 +180,7 @@ dining_room_accent_light:
       - device_tracker.aysylu_fused in [home, just_arrived]
       condition: input_boolean.it_is_evening
   adaptive_lighting: switch.adaptive_lighting_default
-  light: light.triangle_lamp
+  light: light.dimmable_light_30
 
 
 dining_room_lights:
@@ -194,6 +196,7 @@ dining_room_lights:
       transition: 8
     - presence:
       - binary_sensor.main_floor_presence_augmented
+      delay_off: 120
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -278,6 +281,7 @@ kitchen_lights:
     - presence:
       - binary_sensor.main_floor_presence_augmented
       - input_boolean.watching_tv
+      delay_off: 120
       #- device_tracker.david_fused in [home, just_arrived]
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
@@ -298,6 +302,7 @@ downstairs_lights:
       #- device_tracker.aysylu_fused in [home, just_arrived]
   adaptive_lighting: switch.adaptive_lighting_default
   light: light.downstairs
+    #debug: True
 
 downstairs_geoleaf_light:
   class: LightController
@@ -360,7 +365,7 @@ garage_light:
   class: LightController2
   module: lights2
   light: light.neopixel_light
-  debug: True
+    #debug: True
 
 basic_thermostat:
   class: BasicThermostatController
@@ -380,7 +385,7 @@ basic_thermostat:
     warm_day: 74
     cool_day: 72
     sleep: 68
-    away: 77
+    away: 76
   events:
     sleep:
       name: ios.action_fired
@@ -463,7 +468,7 @@ bedroom_presence:
   openings: binary_sensor.bedroom_door
   closing_grace_period_seconds: 45
   room: downstairs
-  debug: true
+    #debug: true
 
 basement_presence:
   class: RoomAugmenter
@@ -489,71 +494,71 @@ main_floor_presence:
     - binary_sensor.kitchen_occupancy
     - binary_sensor.dining_table_occupancy_detected
   room: main-floor
-  debug: true
+    #debug: true
 
-cleaner:
-  class: CleaningManager
-  module: cleaning_queue
-  debug: true
-  vacuum: vacuum.roborock_s7_maxv_2
-  vacuum_map: camera.roborock_s7_maxv_map
-  readiness_timeout_mins: 60
-  maintainence_states:
-    - 38 # refill clean water
-    - 27 # empty dirty
-    - 10 # stuck
-  pathways:
-    "living room":
-      # default to open connections
-      - dining room
-      - litter box
-    dining room:
-      - area: kitchen
-        opening: input_boolean.kitchen_false_door
-        before_coord: [ 25477, 30469 ]
-        after_coord: [ 26003, 30648 ]
-        #- foyer
-        #    foyer:
-        #      - opening: binary_sensor.bedroom_hall_door
-        #        area: bedroom hallway
-        #    bedroom hallway:
-        #      - opening: binary_sensor.bedroom_1_door
-        #        area: bedroom 1
-        #        before_coord: [ 22, 22 ]
-        #        after_coord: [ 22, 20 ]
-        #      - opening: binary_sensor.bedroom_2_door
-        #        area: bedroom 2
-        #        before_coord: [ 14, 22 ]
-        #        after_coord: [ 14, 20 ]
-        #      - opening: binary_sensor.bedroom_3_door
-        #        area: bedroom 3
-        #        before_coord: [ 10, 22 ]
-        #        after_coord: [ 10, 20 ]
-        #      - opening: binary_sensor.master_bedroom_door
-        #        area: master bedroom
-        #        before_coord: [ 22, 30 ]
-        #        after_coord: [ 22, 28 ]
-        #      gated:
-        #        opening:
-        #          - binary_sensor.bedroom_1_door
-  areas:
-    "living room":
-      id: 18
-      presence:
-        - binary_sensor.main_floor_presence_augmented
-        - binary_sensor.yet_to_tidy_living_room
-      home: true # makes this the area which contains the base
-    kitchen:
-      id: 16
-      presence: binary_sensor.main_floor_presence_augmented
-    "dining room":
-      id: 17
-      presence: binary_sensor.main_floor_presence_augmented
-    "litter box":
-      zone:
-        - 24964
-        - 25210
-        - 27594
-        - 28426
-      presence: binary_sensor.main_floor_presence_augmented
-
+    #cleaner:
+    #  class: CleaningManager
+    #  module: cleaning_queue
+    #  debug: true
+    #  vacuum: vacuum.roborock_s7_maxv_2
+    #  vacuum_map: camera.roborock_s7_maxv_map
+    #  readiness_timeout_mins: 60
+    #  maintainence_states:
+    #    - 38 # refill clean water
+    #    - 27 # empty dirty
+    #    - 10 # stuck
+    #  pathways:
+    #    "living room":
+    #      # default to open connections
+    #      - dining room
+    #      - litter box
+    #    dining room:
+    #      - area: kitchen
+    #        opening: input_boolean.kitchen_false_door
+    #        before_coord: [ 25477, 30469 ]
+    #        after_coord: [ 26003, 30648 ]
+    #        #- foyer
+    #        #    foyer:
+    #        #      - opening: binary_sensor.bedroom_hall_door
+    #        #        area: bedroom hallway
+    #        #    bedroom hallway:
+    #        #      - opening: binary_sensor.bedroom_1_door
+    #        #        area: bedroom 1
+    #        #        before_coord: [ 22, 22 ]
+    #        #        after_coord: [ 22, 20 ]
+    #        #      - opening: binary_sensor.bedroom_2_door
+    #        #        area: bedroom 2
+    #        #        before_coord: [ 14, 22 ]
+    #        #        after_coord: [ 14, 20 ]
+    #        #      - opening: binary_sensor.bedroom_3_door
+    #        #        area: bedroom 3
+    #        #        before_coord: [ 10, 22 ]
+    #        #        after_coord: [ 10, 20 ]
+    #        #      - opening: binary_sensor.master_bedroom_door
+    #        #        area: master bedroom
+    #        #        before_coord: [ 22, 30 ]
+    #        #        after_coord: [ 22, 28 ]
+    #        #      gated:
+    #        #        opening:
+    #        #          - binary_sensor.bedroom_1_door
+    #  areas:
+    #    "living room":
+    #      id: 18
+    #      presence:
+    #        - binary_sensor.main_floor_presence_augmented
+    #        - binary_sensor.yet_to_tidy_living_room
+    #      home: true # makes this the area which contains the base
+    #    kitchen:
+    #      id: 16
+    #      presence: binary_sensor.main_floor_presence_augmented
+    #    "dining room":
+    #      id: 17
+    #      presence: binary_sensor.main_floor_presence_augmented
+    #    "litter box":
+    #      zone:
+    #        - 24964
+    #        - 25210
+    #        - 27594
+    #        - 28426
+    #      presence: binary_sensor.main_floor_presence_augmented
+    #
