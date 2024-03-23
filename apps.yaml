@@ -233,7 +233,7 @@ aysylu_office_lamp:
       condition: input_boolean.it_is_evening
       delay_off: 30
   adaptive_lighting: switch.adaptive_lighting_default
-  light: light.aysylu_office_lamp
+  light: light.aysylu_office_dim_lamp
     #  debug: true
 
 stairs_lights:
