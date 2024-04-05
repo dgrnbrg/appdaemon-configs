@@ -46,7 +46,7 @@ class IrkEnrollmentComponent :
 
 
  protected:
-  std::shared_ptr<esp32_ble_server::BLEService> service_;
+  esp32_ble_server::BLEService *service_{nullptr};
   text_sensor::TextSensor *latest_irk_{nullptr};
 };
 

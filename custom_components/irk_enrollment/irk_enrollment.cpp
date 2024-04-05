@@ -36,7 +36,9 @@ static std::string hexStr(unsigned char *data, int len)
 }
 
 void IrkEnrollmentComponent::setup() {
-  this->service_ = esp32_ble_server::global_ble_server->create_service(0x1812, true);
+  auto service_uuid = esphome::esp32_ble::ESPBTUUID::from_uint16(0x1812);
+  esp32_ble_server::global_ble_server->create_service(service_uuid, true);
+  this->service_ = esp32_ble_server::global_ble_server->get_service(service_uuid);
   // TODO seems like the below configuration is unneeded, but need to confirm with a "clean" device
   //esp_ble_auth_req_t auth_req = ESP_LE_AUTH_BOND; //bonding with peer device after authentication
   //uint8_t key_size = 16;      //the key size should be 7~16 bytes
