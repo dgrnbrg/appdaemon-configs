@@ -263,7 +263,7 @@ class LightController(hass.Hass):
 
     @ad.app_lock
     def service_snoop(self, event_name, data, kwargs):
-        if data['domain'] != 'light' and data['domain'] != 'button' and data['domain'] != 'input_boolean':
+        if 'domain' not in data or data['domain'] != 'light' and data['domain'] != 'button' and data['domain'] != 'input_boolean':
             return
         #print(f"service snooped {data}")
         endogenous = data['metadata']['context']['user_id'] == self.user_id
