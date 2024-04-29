@@ -4,6 +4,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 
 import hassapi as hass
 import traceback
@@ -91,7 +92,13 @@ class GoPortParkingController(hass.Hass):
             return
         self.log(f"buying daily: activating quick-buy (on url {self.driver.current_url})")
         self.get_entity(entity).set_state(state='purchasing_daily', attributes={'detail': 'Purchasing daily pass...'})
-        quick_buy = self.driver.find_element(By.PARTIAL_LINK_TEXT, plate)
+        try:
+            quick_buy = self.driver.find_element(By.PARTIAL_LINK_TEXT, plate)
+        except NoSuchElementException:
+            drop_down = self.driver.find_element(By.CLASS_NAME, 'caret')
+            drop_down.click()
+            time.sleep(JS_WAIT)
+            quick_buy = self.driver.find_element(By.PARTIAL_LINK_TEXT, plate)
         quick_buy.click()
         time.sleep(5)
         self.log(f"buying daily: confirming quick-buy")
