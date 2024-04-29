@@ -39,25 +39,12 @@ class GoPortParkingController(hass.Hass):
             return False
         self.listen_event(self.book_daily, "call_service", domain="button", service="press", service_data=filter_quick_buy_button)
         self.run_daily(self.reset_state, '3:00:00')
-        self.listen_state(self.parking_pass_email_cb, self.args['parking_pass_email_sensor'], attribute='subject')
-        self.pending_plates = []
 
     def terminate(self):
         try:
             self.driver.close()
         except Exception:
             self.log(f"failed to terminate properly: {traceback.format_exc()}")
-
-    def parking_pass_email_cb(self, entity, attr, old, new, kwargs):
-        if len(self.pending_plates) > 0:
-            plate = self.pending_plates.pop()
-            entity_id = f"button.quick_buy_daily_{plate}"
-            entity = self.get_entity(entity_id)
-            if new not in ['RPP Approved', 'Payment  Processed']:
-                self.log(f"Unexpected email from RPP email: {new}")
-                entity.set_state(state='error', attributes={'detail': 'Unexpected email from parking: {new}'})
-            else:
-                entity.set_state(state='successfully_purchased', attributes={'detail': 'Purchase successfully completed.'})
 
     def reset_state(self, kwargs):
         for plate in self.args['plates']:
@@ -103,11 +90,21 @@ class GoPortParkingController(hass.Hass):
             time.sleep(JS_WAIT)
             quick_buy = self.driver.find_element(By.PARTIAL_LINK_TEXT, plate)
         quick_buy.click()
-        time.sleep(5)
+        time.sleep(WEB_WAIT)
         self.log(f"buying daily: confirming quick-buy")
         self.get_entity(entity).set_state(state='confirming_purchase', attributes={'detail': 'Confirming purchase...'})
         quick_buy_confirm = self.driver.find_element(By.XPATH, "//span[@id='quickBuyConfirmPanel']//input[@Value='Yes']")
         quick_buy_confirm.click()
         print(f"bought the daily pass (confirm={quick_buy_confirm})")
-        self.pending_plates.append(plate)
+
+        time.sleep(WEB_WAIT)
+        try:
+            xpath = f'//div[contains(@class, "panel") and .//h3[contains(text(), "Your RPPs")] and .//li[contains(@class, "active") and ./a[contains(text(), "Current RPPs")]] and .//td[./span[contains(text(), "Plate")] and ./span[contains(text(), "{plate}") and contains(@class, "text-success")]]]'
+            self.log(f"Find element by xpath {xpath}")
+            self.driver.find_element(By.XPATH, xpath)
+            self.log(f"Found active parking pass on RPP portal for {plate}")
+            self.get_entity(entity).set_state(state='successfully_purchased', attributes={'detail': 'Purchase successfully completed.'})
+        except NoSuchElementException as nse:
+          self.log(f"Unexpected state from RPP portal for {plate}: {nse}")
+          self.get_entity(entity).set_state(state='error', attributes={'detail': 'No active parking passes, check the website.'})
 
