@@ -10,6 +10,9 @@ import hassapi as hass
 import traceback
 import adbase as ad
 
+JS_WAIT = 1
+WEB_WAIT = 5
+
 class GoPortParkingController(hass.Hass):
     def initialize(self):
         chrome_options = Options()
@@ -75,7 +78,7 @@ class GoPortParkingController(hass.Hass):
         self.get_entity(entity).set_state(state='opening_portal', attributes={'detail': 'Opening portal'})
         self.log(f"buying daily: navigating to login")
         self.driver.get("https://goportparking.org/rppportal/login.xhtml")
-        time.sleep(5)
+        time.sleep(WEB_WAIT)
         self.log(f"buying daily: logging in")
         username = self.driver.find_element(By.ID, "username")
         username.clear()
@@ -85,7 +88,7 @@ class GoPortParkingController(hass.Hass):
         password.send_keys(self.args['password'])
         self.driver.find_element(By.ID, "login").click()
         self.get_entity(entity).set_state(state='logging_in', attributes={'detail': 'Logging in...'})
-        time.sleep(5)
+        time.sleep(WEB_WAIT)
         if self.driver.current_url != 'https://goportparking.org/rppportal/index.xhtml':
             self.log(f"Login seems to have failed")
             self.get_entity(entity).set_state(state='login_failed', attributes={'detail': 'Login failed'})
