@@ -451,7 +451,8 @@ parking_booker:
   password: !secret goportparking_password
   parking_pass_email_sensor: sensor.port_washington_parking_pass
   plates:
-    - KTT9990
+    - !secret goportparking_car1
+    - !secret goportparking_carr2
 
 bedroom_presence:
   class: RoomAugmenter
