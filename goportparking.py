@@ -98,6 +98,10 @@ class GoPortParkingController(hass.Hass):
         print(f"bought the daily pass (confirm={quick_buy_confirm})")
 
         time.sleep(WEB_WAIT)
+        self.log(f"Next, navigate to the portal's index page")
+        self.driver.get("https://goportparking.org/rppportal/index.xhtml")
+        self.log(f"Navigating to the portal's index page")
+        time.sleep(WEB_WAIT)
         try:
             xpath = f'//div[contains(@class, "panel") and .//h3[contains(text(), "Your RPPs")] and .//li[contains(@class, "active") and ./a[contains(text(), "Current RPPs")]] and .//td[./span[contains(text(), "Plate")] and ./span[contains(text(), "{plate}") and contains(@class, "text-success")]]]'
             self.log(f"Find element by xpath {xpath}")
