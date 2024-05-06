@@ -69,8 +69,8 @@ void IrkEnrollmentComponent::loop() {
 			(bond_devs[i].bd_addr[0] << 24) + (bond_devs[i].bd_addr[1] << 16) + (bond_devs[i].bd_addr[2] << 8) +
 			bond_devs[i].bd_addr[3],
 			(bond_devs[i].bd_addr[4] << 8) + bond_devs[i].bd_addr[5]);
-        auto irkStr = hexStr(bond_devs[i].bond_key.pid_key.irk, 16);
-		ESP_LOGI(TAG, "      irk: %s", irkStr);
+        auto irkStr = hexStr((unsigned char *) &bond_devs[i].bond_key.pid_key.irk, 16);
+		ESP_LOGI(TAG, "      irk: %s", irkStr.c_str());
         if (this->latest_irk_ != nullptr && this->latest_irk_->get_state() != irkStr) {
             this->latest_irk_->publish_state(irkStr);
         }
