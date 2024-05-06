@@ -297,6 +297,7 @@ class IrkTracker(hass.Hass):
                 device_person = self.identities[matched_device]['person']
                 self.set_person_fused_tracker_state(device_person, 'just_arrived', f'saw {matched_device}')
                 self.log(f"{device_person} just arrived due to first observation from {matched_device}")
+                self.schedule_arrival_after_delay(device_person)
         obs.append((time, rssi + self.rssi_adjustments.get(source,0)))
         self.tracking_resolve(matched_device)
         if matched_device in self.expiry_timers:
@@ -348,7 +349,7 @@ class IrkTracker(hass.Hass):
         #self.log(f"total_votes={total_votes} in_room={in_room}")
         device_person = self.identities[device]['person']
         # they're always here if they don't have a fused tracker, or they're in a "home" state
-        person_is_home = device_person not in self.fused_trackers or self.get_state(self.fused_trackers[device_person]) in ['home', 'just_arrived']
+        person_is_home = device_person not in self.fused_trackers or self.get_state(self.fused_trackers[device_person]) in ['home']#, 'just_arrived']
         if device in self.device_in_room and in_room != 'unknown':
             old_room = self.device_in_room[device]
             # here we filter to ensure the in_room is occupied, or else we can ignore this update
